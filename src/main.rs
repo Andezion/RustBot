@@ -30,7 +30,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut disp = Dispatcher::new();
 
-    // /help
     disp.add_command("help", |client: Client, msg: Message| {
         let help = "/help - list commands\n/ping - pong\n/echo <text>\n/whoami\n/keyboard\n/inline\n/set <k> <v>\n/get <k>\n/broadcast <text> (admin)\n/upload\n/stats".to_string();
         async move {
@@ -38,12 +37,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // /ping
     disp.add_command("ping", |client: Client, msg: Message| async move {
         let _ = client.send_message(msg.chat.id, "pong", None).await;
     });
 
-    // /echo
     disp.add_command("echo", |client: Client, msg: Message| async move {
         if let Some(text) = msg.text {
             let parts: Vec<&str> = text.splitn(2, ' ').collect();
@@ -52,7 +49,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // /whoami
     disp.add_command("whoami", |client: Client, msg: Message| async move {
         let user = msg.from;
         if let Some(u) = user {
@@ -62,7 +58,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // /keyboard
     let keyboard_markup = serde_json::json!({"keyboard": [[{"text":"/help"},{"text":"/ping"}], [{"text":"/whoami"}]], "one_time_keyboard": true});
     disp.add_command("keyboard", move |client: Client, msg: Message| {
         let rm = keyboard_markup.clone();
@@ -71,7 +66,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // /inline
     disp.add_command("inline", |client: Client, msg: Message| async move {
         let inline = serde_json::json!({
             "inline_keyboard": [[{"text":"Say hi","callback_data":"echo Hello from button"}]]
@@ -79,14 +73,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let _ = client.send_message(msg.chat.id, "Inline example:", Some(inline)).await;
     });
 
-    // /set
     let kv_set = kv.clone();
     disp.add_command("set", move |_client: Client, msg: Message| {
         let kv = kv_set.clone();
         async move {
             if let Some(text) = msg.text {
                 let mut parts = text.splitn(3, ' ');
-                parts.next(); // command
+                parts.next(); 
                 if let Some(k) = parts.next() {
                     if let Some(v) = parts.next() {
                         kv.lock().unwrap().insert(k.to_string(), v.to_string());
@@ -96,7 +89,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // /get
     let kv_get = kv.clone();
     disp.add_command("get", move |client: Client, msg: Message| {
         let kv = kv_get.clone();
@@ -112,7 +104,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // /broadcast (admin-only)
     let users_clone = users.clone();
     disp.add_command("broadcast", move |client: Client, msg: Message| {
         let users = users_clone.clone();
@@ -133,13 +124,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // /upload - send README.md as example
     disp.add_command("upload", |client: Client, msg: Message| async move {
         let path = "README.md";
         let _ = client.send_document_path(msg.chat.id, path).await;
     });
 
-    // /stats
     let users_c = users.clone();
     let counters_c = counters.clone();
     disp.add_command("stats", move |client: Client, msg: Message| {
@@ -161,13 +150,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(updates) => {
                 for u in updates {
                     offset = u.update_id + 1;
-                    // track users
+                    
                     if let Some(msg) = &u.message {
                         users.lock().unwrap().insert(msg.chat.id);
                     }
-                    // message dispatch
+                    
                     if let Some(msg) = u.message {
-                        // increment command counter (by command word)
+                        
                         if let Some(text) = &msg.text {
                             if text.starts_with('/') {
                                 let cmd = text.split_whitespace().next().unwrap_or("").trim_start_matches('/').to_string();
@@ -177,10 +166,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         println!("Message from {}: {}", msg.chat.id, msg.text.clone().unwrap_or_default());
                         disp.dispatch(client.clone(), msg).await;
                     }
-                    // callback dispatch as message with data
+                    
                     if let Some(cb) = u.callback_query {
                         if let Some(data) = cb.data {
-                            // create synthetic message
+                            
                             let synthetic_chat = if let Some(m) = cb.message.clone() { m.chat.clone() } else { types::Chat { id: cb.from.id, kind: None, username: None, first_name: None, last_name: None } };
                             let synthetic = Message { message_id: 0, text: Some(data), chat: synthetic_chat, from: Some(cb.from) };
                             disp.dispatch(client.clone(), synthetic).await;
