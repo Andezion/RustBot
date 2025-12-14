@@ -1,40 +1,25 @@
-# bot — minimal Telegram polling example (Rust)
+# Rust Bot
 
-Кратко: минимальный пример Telegram-бота на Rust с простым `Client` и `Dispatcher`.
+Это минимальный пример Telegram-бота на Rust с простым `Client` и `Dispatcher`.
 
-Quick start
+Prerequisites
 
-1. Сгенерируйте токен через @BotFather и НЕ публикуйте его.
-2. В текущей PowerShell-сессии:
+- Rust (install via rustup): https://rustup.rs
+- `cargo` в PATH (будет после установки `rustup`)
+- Токен бота, полученный у @BotFather
+
+Run (Windows - PowerShell)
 
 ```powershell
 $env:TELEGRAM_BOT_TOKEN = 'YOUR_TOKEN_HERE'
-cd 'C:\Users\vdoro\RustShit\bot'
+cd ~/path/to/bot
 cargo run
 ```
 
-3. Отправьте `/start` боту в Telegram — бот должен ответить.
-
-Security
-
-- Никогда не коммитьте токены. Используйте `.env` и добавьте его в `.gitignore`.
-- Если токен скомпрометирован — немедленно регенерируйте через @BotFather.
-
-Repository
-
-Commands to initialize and push to GitHub (example):
+Run (Unix / macOS)
 
 ```bash
-git init
-git add .
-git commit -m "Initial bot skeleton"
-# create remote via gh (recommended) or create repo on github.com and add remote
-# gh repo create my-bot --public --source=. --push
-# or manual:
-# git remote add origin https://github.com/youruser/yourrepo.git
-# git push -u origin main
+export TELEGRAM_BOT_TOKEN="YOUR_TOKEN_HERE"
+cd ~/path/to/bot
+cargo run
 ```
-
-CI
-
-Included: simple GitHub Actions workflow for `cargo build` and `cargo test`.
