@@ -13,6 +13,7 @@ pub struct Update {
     pub update_id: i64,
     pub message: Option<Message>,
     pub edited_message: Option<Message>,
+    pub callback_query: Option<CallbackQuery>,
 }
 
 #[allow(dead_code)]
@@ -43,3 +44,13 @@ pub struct User {
     pub first_name: String,
     pub username: Option<String>,
 }
+
+#[allow(dead_code)]
+#[derive(Deserialize, Debug, Clone)]
+pub struct CallbackQuery {
+    pub id: String,
+    pub from: User,
+    pub message: Option<Message>,
+    pub data: Option<String>,
+}
+

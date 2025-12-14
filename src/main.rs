@@ -3,24 +3,155 @@ mod types;
 mod dispatch;
 
 use std::env;
+use std::sync::{Arc, Mutex};
+use std::collections::{HashMap, HashSet};
 use tokio::time::{sleep, Duration};
 use client::Client;
 use dispatch::Dispatcher;
 use types::Message;
+
+type KvStore = Arc<Mutex<HashMap<String, String>>>;
+type Users = Arc<Mutex<HashSet<i64>>>;
+type Counters = Arc<Mutex<HashMap<String, u64>>>;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let token = env::var("TELEGRAM_BOT_TOKEN")
         .expect("Please set the TELEGRAM_BOT_TOKEN environment variable");
 
+    let admin_id: Option<i64> = env::var("ADMIN_ID").ok().and_then(|s| s.parse().ok());
+
     let client = Client::new(token);
     let mut offset: i64 = 0;
 
+    let kv: KvStore = Arc::new(Mutex::new(HashMap::new()));
+    let users: Users = Arc::new(Mutex::new(HashSet::new()));
+    let counters: Counters = Arc::new(Mutex::new(HashMap::new()));
+
     let mut disp = Dispatcher::new();
 
-    disp.add_command("start", |client: Client, msg: Message| async move {
-        let params = serde_json::json!({"chat_id": msg.chat.id, "text": "Привет! Я диспетчерный бот."});
-        let _ : Result<serde_json::Value, _> = client.send("sendMessage", &params).await;
+    // /help
+    disp.add_command("help", |client: Client, msg: Message| {
+        let help = "/help - list commands\n/ping - pong\n/echo <text>\n/whoami\n/keyboard\n/inline\n/set <k> <v>\n/get <k>\n/broadcast <text> (admin)\n/upload\n/stats".to_string();
+        async move {
+            let _ = client.send_message(msg.chat.id, &help, None).await;
+        }
+    });
+
+    // /ping
+    disp.add_command("ping", |client: Client, msg: Message| async move {
+        let _ = client.send_message(msg.chat.id, "pong", None).await;
+    });
+
+    // /echo
+    disp.add_command("echo", |client: Client, msg: Message| async move {
+        if let Some(text) = msg.text {
+            let parts: Vec<&str> = text.splitn(2, ' ').collect();
+            let resp = if parts.len() > 1 { parts[1].to_string() } else { "".to_string() };
+            let _ = client.send_message(msg.chat.id, &resp, None).await;
+        }
+    });
+
+    // /whoami
+    disp.add_command("whoami", |client: Client, msg: Message| async move {
+        let user = msg.from;
+        if let Some(u) = user {
+            let name = u.username.clone().unwrap_or_else(|| u.first_name.clone());
+            let resp = format!("id: {}\nusername: {}", u.id, name);
+            let _ = client.send_message(msg.chat.id, &resp, None).await;
+        }
+    });
+
+    // /keyboard
+    let keyboard_markup = serde_json::json!({"keyboard": [[{"text":"/help"},{"text":"/ping"}], [{"text":"/whoami"}]], "one_time_keyboard": true});
+    disp.add_command("keyboard", move |client: Client, msg: Message| {
+        let rm = keyboard_markup.clone();
+        async move {
+            let _ = client.send_message(msg.chat.id, "Choose:", Some(rm)).await;
+        }
+    });
+
+    // /inline
+    disp.add_command("inline", |client: Client, msg: Message| async move {
+        let inline = serde_json::json!({
+            "inline_keyboard": [[{"text":"Say hi","callback_data":"echo Hello from button"}]]
+        });
+        let _ = client.send_message(msg.chat.id, "Inline example:", Some(inline)).await;
+    });
+
+    // /set
+    let kv_set = kv.clone();
+    disp.add_command("set", move |_client: Client, msg: Message| {
+        let kv = kv_set.clone();
+        async move {
+            if let Some(text) = msg.text {
+                let mut parts = text.splitn(3, ' ');
+                parts.next(); // command
+                if let Some(k) = parts.next() {
+                    if let Some(v) = parts.next() {
+                        kv.lock().unwrap().insert(k.to_string(), v.to_string());
+                    }
+                }
+            }
+        }
+    });
+
+    // /get
+    let kv_get = kv.clone();
+    disp.add_command("get", move |client: Client, msg: Message| {
+        let kv = kv_get.clone();
+        async move {
+            if let Some(text) = msg.text {
+                let mut parts = text.splitn(2, ' ');
+                parts.next();
+                if let Some(k) = parts.next() {
+                    let v = kv.lock().unwrap().get(k).cloned().unwrap_or_else(|| "(not set)".to_string());
+                    let _ = client.send_message(msg.chat.id, &v, None).await;
+                }
+            }
+        }
+    });
+
+    // /broadcast (admin-only)
+    let users_clone = users.clone();
+    disp.add_command("broadcast", move |client: Client, msg: Message| {
+        let users = users_clone.clone();
+        let admin = admin_id;
+        async move {
+            if admin.is_none() { let _ = client.send_message(msg.chat.id, "ADMIN_ID not set", None).await; return; }
+            let allowed = msg.from.as_ref().map(|u| Some(u.id) == admin).unwrap_or(false);
+            if !allowed { let _ = client.send_message(msg.chat.id, "not allowed", None).await; return; }
+            if let Some(text) = msg.text {
+                let parts: Vec<&str> = text.splitn(2, ' ').collect();
+                if parts.len() < 2 { let _ = client.send_message(msg.chat.id, "usage: /broadcast <text>", None).await; return; }
+                let body = parts[1];
+                let list: Vec<i64> = users.lock().unwrap().iter().cloned().collect();
+                for uid in list {
+                    let _ = client.send_message(uid, body, None).await;
+                }
+            }
+        }
+    });
+
+    // /upload - send README.md as example
+    disp.add_command("upload", |client: Client, msg: Message| async move {
+        let path = "README.md";
+        let _ = client.send_document_path(msg.chat.id, path).await;
+    });
+
+    // /stats
+    let users_c = users.clone();
+    let counters_c = counters.clone();
+    disp.add_command("stats", move |client: Client, msg: Message| {
+        let users = users_c.clone();
+        let counters = counters_c.clone();
+        async move {
+            let u = users.lock().unwrap().len();
+            let stats = counters.lock().unwrap().clone();
+            let mut s = format!("users: {}\n", u);
+            for (k,v) in stats { s.push_str(&format!("{}: {}\n", k, v)); }
+            let _ = client.send_message(msg.chat.id, &s, None).await;
+        }
     });
 
     println!("Starting polling bot with dispatcher...");
@@ -30,10 +161,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(updates) => {
                 for u in updates {
                     offset = u.update_id + 1;
+                    // track users
+                    if let Some(msg) = &u.message {
+                        users.lock().unwrap().insert(msg.chat.id);
+                    }
+                    // message dispatch
                     if let Some(msg) = u.message {
-                        let text_preview = msg.text.clone().unwrap_or_default();
-                        println!("Message from {}: {}", msg.chat.id, text_preview);
+                        // increment command counter (by command word)
+                        if let Some(text) = &msg.text {
+                            if text.starts_with('/') {
+                                let cmd = text.split_whitespace().next().unwrap_or("").trim_start_matches('/').to_string();
+                                *counters.lock().unwrap().entry(cmd).or_insert(0) += 1;
+                            }
+                        }
+                        println!("Message from {}: {}", msg.chat.id, msg.text.clone().unwrap_or_default());
                         disp.dispatch(client.clone(), msg).await;
+                    }
+                    // callback dispatch as message with data
+                    if let Some(cb) = u.callback_query {
+                        if let Some(data) = cb.data {
+                            // create synthetic message
+                            let synthetic_chat = if let Some(m) = cb.message.clone() { m.chat.clone() } else { types::Chat { id: cb.from.id, kind: None, username: None, first_name: None, last_name: None } };
+                            let synthetic = Message { message_id: 0, text: Some(data), chat: synthetic_chat, from: Some(cb.from) };
+                            disp.dispatch(client.clone(), synthetic).await;
+                        }
                     }
                 }
             }
