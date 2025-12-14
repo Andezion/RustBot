@@ -1,0 +1,31 @@
+# Build
+/target/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Installer / local tools
+rustup-init.exe
+
+# Cargo config
+.cargo/
+
+# Backup files
+*.rs.bk
+
+# IDEs / editors
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs / temp
+*.log
+*.tmp
+*.swp
