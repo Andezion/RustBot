@@ -16,6 +16,7 @@ type Counters = Arc<Mutex<HashMap<String, u64>>>;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let _ = dotenvy::dotenv();
     let token = env::var("TELEGRAM_BOT_TOKEN")
         .expect("Please set the TELEGRAM_BOT_TOKEN environment variable");
 
