@@ -21,6 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("Please set the TELEGRAM_BOT_TOKEN environment variable");
 
     let admin_id: Option<i64> = env::var("ADMIN_ID").ok().and_then(|s| s.parse().ok());
+    let admin = admin_id; 
 
     let client = Client::new(token);
     let mut offset: i64 = 0;
@@ -31,10 +32,47 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut disp = Dispatcher::new();
 
-    disp.add_command("help", |client: Client, msg: Message| {
-        let help = "/help - list commands\n/ping - pong\n/echo <text>\n/whoami\n/keyboard\n/inline\n/set <k> <v>\n/get <k>\n/broadcast <text> (admin)\n/upload\n/stats".to_string();
+    let keyboard_markup = serde_json::json!({"keyboard": [[{"text":"/help"},{"text":"/ping"}], [{"text":"/whoami"}]], "one_time_keyboard": true});
+    
+    let kb_help = keyboard_markup.clone();
+    let kb_start = keyboard_markup.clone();
+    let kb_keyboard = keyboard_markup.clone();
+
+    disp.add_command("help", move |client: Client, msg: Message| {
+        let admin = admin;
+        let kb = kb_help.clone();
         async move {
-            let _ = client.send_message(msg.chat.id, &help, None).await;
+            let mut help = String::from("Available commands:\n");
+            help.push_str("/start - start and register\n");
+            help.push_str("/help - this message\n");
+            help.push_str("/ping - pong\n");
+            help.push_str("/echo <text> - echo back text\n");
+            help.push_str("/whoami - show your id and username\n");
+            help.push_str("/keyboard - show custom keyboard\n");
+            help.push_str("/inline - show inline buttons example\n");
+            help.push_str("/set <k> <v> - save key/value (in-memory)\n");
+            help.push_str("/get <k> - get saved value\n");
+            help.push_str("/broadcast <text> - send to all users (admin only)\n");
+            help.push_str("/upload - upload README.md\n");
+            help.push_str("/stats - show simple stats\n");
+            if admin.is_some() {
+                help.push_str("\nAdmin commands are enabled.\n");
+            } else {
+                help.push_str("\nNote: ADMIN_ID not set. Some commands require ADMIN_ID.\n");
+            }
+            let _ = client.send_message(msg.chat.id, &help, Some(kb)).await;
+        }
+    });
+
+    let users_for_start = users.clone();
+    disp.add_command("start", move |client: Client, msg: Message| {
+        let users = users_for_start.clone();
+        let kb = kb_start.clone();
+        async move {
+            users.lock().unwrap().insert(msg.chat.id);
+            let name = msg.from.as_ref().map(|u| u.first_name.clone()).unwrap_or_else(|| "there".to_string());
+            let welcome = format!("Hello, {}! Welcome. Type /help to see available commands.", name);
+            let _ = client.send_message(msg.chat.id, &welcome, Some(kb)).await;
         }
     });
 
@@ -59,9 +97,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    let keyboard_markup = serde_json::json!({"keyboard": [[{"text":"/help"},{"text":"/ping"}], [{"text":"/whoami"}]], "one_time_keyboard": true});
     disp.add_command("keyboard", move |client: Client, msg: Message| {
-        let rm = keyboard_markup.clone();
+        let rm = kb_keyboard.clone();
         async move {
             let _ = client.send_message(msg.chat.id, "Choose:", Some(rm)).await;
         }
@@ -144,44 +181,57 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    println!("Starting polling bot with dispatcher...");
+    println!("Starting polling bot with dispatcher... (press Ctrl+C to stop)");
 
     loop {
-        match client.get_updates(offset, 30).await {
-            Ok(updates) => {
-                for u in updates {
-                    offset = u.update_id + 1;
-                    
-                    if let Some(msg) = &u.message {
-                        users.lock().unwrap().insert(msg.chat.id);
-                    }
-                    
-                    if let Some(msg) = u.message {
-                        
-                        if let Some(text) = &msg.text {
-                            if text.starts_with('/') {
-                                let cmd = text.split_whitespace().next().unwrap_or("").trim_start_matches('/').to_string();
-                                *counters.lock().unwrap().entry(cmd).or_insert(0) += 1;
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                println!("Shutdown signal received, stopping polling...");
+                if let Some(aid) = admin {
+                    let _ = client.send_message(aid, "Bot is shutting down", None).await;
+                }
+                break;
+            }
+            res = client.get_updates(offset, 30) => {
+                match res {
+                    Ok(updates) => {
+                        for u in updates {
+                            offset = u.update_id + 1;
+                            
+                            if let Some(msg) = &u.message {
+                                users.lock().unwrap().insert(msg.chat.id);
+                            }
+                            
+                            if let Some(msg) = u.message {
+                                
+                                if let Some(text) = &msg.text {
+                                    if text.chars().next() == Some('/') {
+                                        let cmd = text.split_whitespace().next().unwrap_or("").trim_start_matches('/').to_string();
+                                        *counters.lock().unwrap().entry(cmd).or_insert(0) += 1;
+                                    }
+                                }
+                                println!("Message from {}: {}", msg.chat.id, msg.text.clone().unwrap_or_default());
+                                disp.dispatch(client.clone(), msg).await;
+                            }
+                            
+                            if let Some(cb) = u.callback_query {
+                                if let Some(data) = cb.data {
+                                    
+                                    let synthetic_chat = if let Some(m) = cb.message.clone() { m.chat.clone() } else { types::Chat { id: cb.from.id, kind: None, username: None, first_name: None, last_name: None } };
+                                    let synthetic = Message { message_id: 0, text: Some(data), chat: synthetic_chat, from: Some(cb.from) };
+                                    disp.dispatch(client.clone(), synthetic).await;
+                                }
                             }
                         }
-                        println!("Message from {}: {}", msg.chat.id, msg.text.clone().unwrap_or_default());
-                        disp.dispatch(client.clone(), msg).await;
                     }
-                    
-                    if let Some(cb) = u.callback_query {
-                        if let Some(data) = cb.data {
-                            
-                            let synthetic_chat = if let Some(m) = cb.message.clone() { m.chat.clone() } else { types::Chat { id: cb.from.id, kind: None, username: None, first_name: None, last_name: None } };
-                            let synthetic = Message { message_id: 0, text: Some(data), chat: synthetic_chat, from: Some(cb.from) };
-                            disp.dispatch(client.clone(), synthetic).await;
-                        }
+                    Err(e) => {
+                        eprintln!("poll error: {}", e);
+                        sleep(Duration::from_secs(2)).await;
                     }
                 }
             }
-            Err(e) => {
-                eprintln!("poll error: {}", e);
-                sleep(Duration::from_secs(2)).await;
-            }
         }
     }
+
+    Ok(())
 }
