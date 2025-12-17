@@ -65,14 +65,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let users_for_start = users.clone();
+    let admin_for_start = admin; 
     disp.add_command("start", move |client: Client, msg: Message| {
         let users = users_for_start.clone();
         let kb = kb_start.clone();
+        let admin = admin_for_start;
         async move {
             users.lock().unwrap().insert(msg.chat.id);
             let name = msg.from.as_ref().map(|u| u.first_name.clone()).unwrap_or_else(|| "there".to_string());
             let welcome = format!("Hello, {}! Welcome. Type /help to see available commands.", name);
             let _ = client.send_message(msg.chat.id, &welcome, Some(kb)).await;
+
+            let mut info = String::new();
+            info.push_str("New /start received:\n\n");
+            info.push_str(&format!("chat: {:?}\n", msg.chat));
+            info.push_str(&format!("from: {:?}\n", msg.from));
+            info.push_str(&format!("message_id: {}\n", msg.message_id));
+            info.push_str(&format!("text: {}\n\n", msg.text.clone().unwrap_or_default()));
+            if let Ok(js) = serde_json::to_string_pretty(&msg) {
+                info.push_str("raw_json:\n");
+                info.push_str(&js);
+                info.push_str("\n");
+            }
+
+            if let Some(aid) = admin {
+                let _ = if info.len() < 3500 {
+                    client.send_message(aid, &info, None).await
+                } else {
+                    let mut path = std::env::temp_dir();
+                    let fname = format!("start_info_{}.json", msg.chat.id);
+                    path.push(fname);
+                    let path_str = path.to_string_lossy().to_string();
+                    let _ = tokio::fs::write(&path_str, info.as_bytes()).await;
+                    client.send_document_path(aid, &path_str).await
+                };
+            }
         }
     });
 
