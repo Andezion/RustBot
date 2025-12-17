@@ -1,6 +1,6 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct ApiResponse<T> {
     pub ok: bool,
     pub result: T,
@@ -8,7 +8,7 @@ pub struct ApiResponse<T> {
 }
 
 #[allow(dead_code)]
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct Update {
     pub update_id: i64,
     pub message: Option<Message>,
@@ -17,7 +17,7 @@ pub struct Update {
 }
 
 #[allow(dead_code)]
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct Message {
     pub message_id: i64,
     pub text: Option<String>,
@@ -26,7 +26,7 @@ pub struct Message {
 }
 
 #[allow(dead_code)]
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct Chat {
     pub id: i64,
     #[serde(rename = "type")]
@@ -37,7 +37,7 @@ pub struct Chat {
 }
 
 #[allow(dead_code)]
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct User {
     pub id: i64,
     pub is_bot: bool,
@@ -46,7 +46,7 @@ pub struct User {
 }
 
 #[allow(dead_code)]
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct CallbackQuery {
     pub id: String,
     pub from: User,
