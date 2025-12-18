@@ -1,7 +1,7 @@
 use reqwest::Client as HttpClient;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use crate::types::{ApiResponse, Update};
+use crate::types::{ApiResponse, Update, File, UserProfilePhotos};
 use thiserror::Error;
 use reqwest::multipart::{Form, Part};
 use tokio::fs;
@@ -84,5 +84,31 @@ impl Client {
         let params = serde_json::json!({"offset": offset, "timeout": timeout});
         let updates: Vec<Update> = self.send("getUpdates", &params).await?;
         Ok(updates)
+    }
+
+    pub async fn get_chat(&self, chat_id: i64) -> Result<serde_json::Value, BotError> {
+        let params = serde_json::json!({"chat_id": chat_id});
+        let v: serde_json::Value = self.send("getChat", &params).await?;
+        Ok(v)
+    }
+
+    pub async fn get_user_profile_photos(&self, user_id: i64) -> Result<UserProfilePhotos, BotError> {
+        let params = serde_json::json!({"user_id": user_id});
+        let uph: UserProfilePhotos = self.send("getUserProfilePhotos", &params).await?;
+        Ok(uph)
+    }
+
+    pub async fn get_file(&self, file_id: &str) -> Result<File, BotError> {
+        let params = serde_json::json!({"file_id": file_id});
+        let f: File = self.send("getFile", &params).await?;
+        Ok(f)
+    }
+
+    pub async fn download_file_bytes(&self, file_path: &str) -> Result<Vec<u8>, BotError> {
+        let file_base = self.base.replacen("/bot", "/file/bot", 1);
+        let url = format!("{}/{}", file_base, file_path);
+        let resp = self.http.get(&url).send().await?;
+        let bytes = resp.bytes().await?;
+        Ok(bytes.to_vec())
     }
 }
