@@ -9,6 +9,7 @@ use tokio::time::{sleep, Duration};
 use client::Client;
 use dispatch::Dispatcher;
 use types::Message;
+// EXIF parsing removed to avoid native dependencies on Windows
 
 type KvStore = Arc<Mutex<HashMap<String, String>>>;
 type Users = Arc<Mutex<HashSet<i64>>>;
@@ -122,6 +123,52 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let resp = format!("id: {}\nusername: {}", u.id, name);
             let _ = client.send_message(msg.chat.id, &resp, None).await;
         }
+    });
+
+    disp.add_command("inspect", |client: Client, msg: Message| async move {
+        let mut report = String::new();
+        report.push_str(&format!("chat: {:?}\n", msg.chat));
+        report.push_str(&format!("message_id: {}\n", msg.message_id));
+        report.push_str(&format!("text: {}\n", msg.text.clone().unwrap_or_default()));
+
+        if let Some(user) = &msg.from {
+            report.push_str(&format!("from: {:?}\n", user));
+
+            if let Ok(chat_js) = client.get_chat(msg.chat.id).await {
+                report.push_str(&format!("getChat: {}\n", serde_json::to_string_pretty(&chat_js).unwrap_or_default()));
+            }
+
+            match client.get_user_profile_photos(user.id).await {
+                Ok(uph) => {
+                    report.push_str(&format!("profile_photos_total: {}\n", uph.total_count));
+                    if uph.total_count > 0 {
+                        if let Some(sizes) = uph.photos.get(0) {
+                            if let Some(best) = sizes.last() {
+                                report.push_str(&format!("chosen_photo_file_id: {}\n", best.file_id));
+                                if let Ok(finfo) = client.get_file(&best.file_id).await {
+                                    report.push_str(&format!("file_info: {:?}\n", finfo));
+                                    if let Some(fp) = finfo.file_path {
+                                            if let Ok(bytes) = client.download_file_bytes(&fp).await {
+                                                report.push_str(&format!("downloaded_bytes: {}\n", bytes.len()));
+                                                report.push_str("EXIF parsing disabled in this build.\n");
+                                            } else {
+                                                report.push_str("failed to download file bytes\n");
+                                            }
+                                    } else {
+                                        report.push_str("file has no file_path (maybe not downloadable)\n");
+                                    }
+                                } else {
+                                    report.push_str("getFile failed\n");
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(_) => { report.push_str("failed to get profile photos\n"); }
+            }
+        }
+
+        let _ = client.send_message(msg.chat.id, &report, None).await;
     });
 
     disp.add_command("keyboard", move |client: Client, msg: Message| {
