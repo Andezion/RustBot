@@ -54,3 +54,29 @@ pub struct CallbackQuery {
     pub data: Option<String>,
 }
 
+#[allow(dead_code)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct File {
+    pub file_id: String,
+    pub file_unique_id: String,
+    pub file_size: Option<u64>,
+    pub file_path: Option<String>,
+}
+
+#[allow(dead_code)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct PhotoSize {
+    pub file_id: String,
+    pub file_unique_id: String,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub file_size: Option<u64>,
+}
+
+#[allow(dead_code)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct UserProfilePhotos {
+    pub total_count: u64,
+    pub photos: Vec<Vec<PhotoSize>>, 
+}
+
