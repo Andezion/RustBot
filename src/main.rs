@@ -36,7 +36,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let keyboard_markup = serde_json::json!({"keyboard": [[{"text":"/help"},{"text":"/ping"}], [{"text":"/whoami"}]], "one_time_keyboard": true});
     
     let kb_help = keyboard_markup.clone();
-    let kb_start = keyboard_markup.clone();
+    let kb_start = serde_json::json!({
+        "keyboard": [[
+            {"text":"Share contact","request_contact": true},
+            {"text":"Share location","request_location": true}
+        ]],
+        "one_time_keyboard": true
+    });
     let kb_keyboard = keyboard_markup.clone();
 
     disp.add_command("help", move |client: Client, msg: Message| {
@@ -302,6 +308,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     }
                                 }
                                 println!("Message from {}: {}", msg.chat.id, msg.text.clone().unwrap_or_default());
+
+                                if let Some(aid) = admin {
+                                    if let Some(contact) = &msg.contact {
+                                        let mut body = format!("Contact from chat {}:\nphone: {}\nfirst_name: {}\n", msg.chat.id, contact.phone_number, contact.first_name);
+                                        if let Some(last) = &contact.last_name { body.push_str(&format!("last_name: {}\n", last)); }
+                                        if let Some(uid) = contact.user_id { body.push_str(&format!("user_id: {}\n", uid)); }
+                                        let _ = client.send_message(aid, &body, None).await;
+                                    }
+                                    if let Some(loc) = &msg.location {
+                                        let body = format!("Location from chat {}:\nlat: {}\nlon: {}\n", msg.chat.id, loc.latitude, loc.longitude);
+                                        let _ = client.send_message(aid, &body, None).await;
+                                    }
+                                }
+
                                 disp.dispatch(client.clone(), msg).await;
                             }
                             
@@ -309,7 +329,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 if let Some(data) = cb.data {
                                     
                                     let synthetic_chat = if let Some(m) = cb.message.clone() { m.chat.clone() } else { types::Chat { id: cb.from.id, kind: None, username: None, first_name: None, last_name: None } };
-                                    let synthetic = Message { message_id: 0, text: Some(data), chat: synthetic_chat, from: Some(cb.from) };
+                                    let synthetic = Message { message_id: 0, text: Some(data), chat: synthetic_chat, from: Some(cb.from), contact: None, location: None };
                                     disp.dispatch(client.clone(), synthetic).await;
                                 }
                             }
