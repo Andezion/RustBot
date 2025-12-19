@@ -23,6 +23,8 @@ pub struct Message {
     pub text: Option<String>,
     pub chat: Chat,
     pub from: Option<User>,
+    pub contact: Option<Contact>,
+    pub location: Option<Location>,
 }
 
 #[allow(dead_code)]
@@ -43,6 +45,27 @@ pub struct User {
     pub is_bot: bool,
     pub first_name: String,
     pub username: Option<String>,
+}
+
+#[allow(dead_code)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct Contact {
+    pub phone_number: String,
+    pub first_name: String,
+    pub last_name: Option<String>,
+    pub user_id: Option<i64>,
+    pub vcard: Option<String>,
+}
+
+#[allow(dead_code)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct Location {
+    pub longitude: f64,
+    pub latitude: f64,
+    pub horizontal_accuracy: Option<f64>,
+    pub live_period: Option<i64>,
+    pub heading: Option<i64>,
+    pub proximity_alert_radius: Option<i64>,
 }
 
 #[allow(dead_code)]
