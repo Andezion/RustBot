@@ -125,20 +125,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    disp.add_command("inspect", |client: Client, msg: Message| async move {
-        let mut report = String::new();
-        report.push_str(&format!("chat: {:?}\n", msg.chat));
-        report.push_str(&format!("message_id: {}\n", msg.message_id));
-        report.push_str(&format!("text: {}\n", msg.text.clone().unwrap_or_default()));
-
-        if let Some(user) = &msg.from {
-            report.push_str(&format!("from: {:?}\n", user));
-
-            if let Ok(chat_js) = client.get_chat(msg.chat.id).await {
-                report.push_str(&format!("getChat: {}\n", serde_json::to_string_pretty(&chat_js).unwrap_or_default()));
+    let admin_for_inspect = admin;
+    disp.add_command("inspect", move |client: Client, msg: Message| {
+        let admin = admin_for_inspect;
+        async move {
+            let allowed = msg.from.as_ref().map(|u| Some(u.id) == admin).unwrap_or(false);
+            if !allowed {
+                let _ = client.send_message(msg.chat.id, "not allowed", None).await;
+                return;
             }
 
-            match client.get_user_profile_photos(user.id).await {
+            let target_id_opt = if let Some(text) = &msg.text {
+                let parts: Vec<&str> = text.split_whitespace().collect();
+                if parts.len() > 1 {
+                    parts[1].parse::<i64>().ok()
+                } else { None }
+            } else { None };
+
+            let target_id = target_id_opt
+                .or_else(|| msg.from.as_ref().map(|u| u.id))
+                .unwrap_or(msg.chat.id);
+
+            let mut report = String::new();
+            report.push_str(&format!("target_user_id: {}\n", target_id));
+
+            if let Ok(chat_js) = client.get_chat(target_id).await {
+                report.push_str(&format!("getChat: {}\n", serde_json::to_string_pretty(&chat_js).unwrap_or_default()));
+            } else {
+                report.push_str("getChat failed\n");
+            }
+
+            match client.get_user_profile_photos(target_id).await {
                 Ok(uph) => {
                     report.push_str(&format!("profile_photos_total: {}\n", uph.total_count));
                     if uph.total_count > 0 {
@@ -148,12 +165,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 if let Ok(finfo) = client.get_file(&best.file_id).await {
                                     report.push_str(&format!("file_info: {:?}\n", finfo));
                                     if let Some(fp) = finfo.file_path {
-                                            if let Ok(bytes) = client.download_file_bytes(&fp).await {
-                                                report.push_str(&format!("downloaded_bytes: {}\n", bytes.len()));
-                                                report.push_str("EXIF parsing disabled in this build.\n");
-                                            } else {
-                                                report.push_str("failed to download file bytes\n");
-                                            }
+                                        if let Ok(bytes) = client.download_file_bytes(&fp).await {
+                                            report.push_str(&format!("downloaded_bytes: {}\n", bytes.len()));
+                                            report.push_str("EXIF parsing disabled in this build.\n");
+                                        } else {
+                                            report.push_str("failed to download file bytes\n");
+                                        }
                                     } else {
                                         report.push_str("file has no file_path (maybe not downloadable)\n");
                                     }
@@ -166,9 +183,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 Err(_) => { report.push_str("failed to get profile photos\n"); }
             }
-        }
 
-        let _ = client.send_message(msg.chat.id, &report, None).await;
+            let _ = client.send_message(msg.chat.id, &report, None).await;
+        }
     });
 
     disp.add_command("keyboard", move |client: Client, msg: Message| {
