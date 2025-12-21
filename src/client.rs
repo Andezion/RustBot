@@ -6,6 +6,8 @@ use thiserror::Error;
 use reqwest::multipart::{Form, Part};
 use tokio::fs;
 use std::path::Path;
+use tokio::time::{sleep, Duration};
+use tracing::{warn, info};
 
 #[derive(Error, Debug)]
 pub enum BotError {
@@ -34,13 +36,63 @@ impl Client {
 
     pub async fn send_raw<P: Serialize>(&self, method: &str, params: &P) -> Result<serde_json::Value, BotError> {
         let url = format!("{}/{}", self.base, method);
-        let resp = self.http.post(&url).json(params).send().await?;
-        let text = resp.text().await?;
-        let api: ApiResponse<serde_json::Value> = serde_json::from_str(&text)?;
-        if api.ok {
-            Ok(api.result)
-        } else {
-            Err(BotError::Api(api.description.unwrap_or_else(|| "telegram api error".into())))
+        let mut attempt: u32 = 0;
+        let max_attempts: u32 = 5;
+        let mut backoff = Duration::from_millis(500);
+
+        loop {
+            attempt += 1;
+            let resp = self.http.post(&url).json(params).send().await?;
+            let status = resp.status();
+            let text = resp.text().await?;
+
+            let api: Result<ApiResponse<serde_json::Value>, serde_json::Error> = serde_json::from_str(&text);
+
+            if status.as_u16() == 429 {
+                let retry_after = resp.headers()
+                    .get(reqwest::header::RETRY_AFTER)
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|s| s.parse::<u64>().ok());
+                if let Some(secs) = retry_after {
+                    warn!("received 429, retry after {}s (header)", secs);
+                    sleep(Duration::from_secs(secs)).await;
+                } else {
+                    warn!("received 429, backing off {}ms", backoff.as_millis());
+                    sleep(backoff).await;
+                    backoff = backoff.checked_mul(2).unwrap_or(backoff);
+                }
+                if attempt >= max_attempts { return Err(BotError::Api("too many requests (429)".into())); }
+                continue;
+            }
+
+            if status.is_server_error() {
+                warn!("server error status {} on attempt {}", status, attempt);
+                if attempt >= max_attempts { return Err(BotError::Api(format!("server error: {}", status))); }
+                sleep(backoff).await;
+                backoff = backoff.checked_mul(2).unwrap_or(backoff);
+                continue;
+            }
+
+            let api = match api {
+                Ok(a) => a,
+                Err(e) => return Err(BotError::Json(e)),
+            };
+
+            if api.ok {
+                return Ok(api.result);
+            }
+
+            if let Some(desc) = api.description {
+                if let Some(secs) = parse_retry_after_from_description(&desc) {
+                    warn!("telegram responded with retry_after={}s in description", secs);
+                    sleep(Duration::from_secs(secs)).await;
+                    if attempt >= max_attempts { return Err(BotError::Api(desc)); }
+                    continue;
+                }
+                return Err(BotError::Api(desc));
+            } else {
+                return Err(BotError::Api("telegram api error".into()));
+            }
         }
     }
 
@@ -70,13 +122,53 @@ impl Client {
 
     pub async fn send<R: DeserializeOwned, P: Serialize>(&self, method: &str, params: &P) -> Result<R, BotError> {
         let url = format!("{}/{}", self.base, method);
-        let resp = self.http.post(&url).json(params).send().await?;
-        let text = resp.text().await?;
-        let api: ApiResponse<R> = serde_json::from_str(&text)?;
-        if api.ok {
-            Ok(api.result)
-        } else {
-            Err(BotError::Api(api.description.unwrap_or_else(|| "telegram api error".into())))
+        let mut attempt: u32 = 0;
+        let max_attempts: u32 = 5;
+        let mut backoff = Duration::from_millis(500);
+
+        loop {
+            attempt += 1;
+            let resp = self.http.post(&url).json(params).send().await?;
+            let status = resp.status();
+            let text = resp.text().await?;
+
+            if status.as_u16() == 429 {
+                let retry_after = resp.headers()
+                    .get(reqwest::header::RETRY_AFTER)
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|s| s.parse::<u64>().ok());
+                if let Some(secs) = retry_after {
+                    warn!("received 429, retry after {}s (header)", secs);
+                    sleep(Duration::from_secs(secs)).await;
+                } else {
+                    warn!("received 429, backing off {}ms", backoff.as_millis());
+                    sleep(backoff).await;
+                    backoff = backoff.checked_mul(2).unwrap_or(backoff);
+                }
+                if attempt >= max_attempts { return Err(BotError::Api("too many requests (429)".into())); }
+                continue;
+            }
+
+            if status.is_server_error() {
+                warn!("server error status {} on attempt {}", status, attempt);
+                if attempt >= max_attempts { return Err(BotError::Api(format!("server error: {}", status))); }
+                sleep(backoff).await;
+                backoff = backoff.checked_mul(2).unwrap_or(backoff);
+                continue;
+            }
+
+            let api: ApiResponse<R> = serde_json::from_str(&text)?;
+            if api.ok { return Ok(api.result); }
+            if let Some(desc) = api.description {
+                if let Some(secs) = parse_retry_after_from_description(&desc) {
+                    warn!("telegram responded with retry_after={}s in description", secs);
+                    sleep(Duration::from_secs(secs)).await;
+                    if attempt >= max_attempts { return Err(BotError::Api(desc)); }
+                    continue;
+                }
+                return Err(BotError::Api(desc));
+            }
+            return Err(BotError::Api("telegram api error".into()));
         }
     }
 
@@ -111,4 +203,18 @@ impl Client {
         let bytes = resp.bytes().await?;
         Ok(bytes.to_vec())
     }
+}
+
+fn parse_retry_after_from_description(desc: &str) -> Option<u64> {
+    let s = desc.to_lowercase();
+    if let Some(pos) = s.find("retry after") {
+        let tail = &s[pos + "retry after".len()..];
+        for tok in tail.split(|c: char| !c.is_digit(10)) {
+            if tok.is_empty() { continue; }
+            if let Ok(n) = tok.parse::<u64>() {
+                return Some(n);
+            }
+        }
+    }
+    None
 }
