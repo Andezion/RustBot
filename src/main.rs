@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use std::collections::{HashMap, HashSet};
 use tokio::time::{sleep, Duration};
-use client::Client;
+use client::{Client, BotError};
 use dispatch::Dispatcher;
 use types::Message;
 
@@ -56,7 +56,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     disp.add_command("help", move |client: Client, msg: Message| {
         let admin = admin;
         let kb = kb_help.clone();
-        async move {
+        async move -> Result<(), BotError> {
             let mut help = String::from("Available commands:\n");
             help.push_str("/start - start and register\n");
             help.push_str("/help - this message\n");
@@ -76,7 +76,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 help.push_str("\nNote: ADMIN_ID not set. Some commands require ADMIN_ID.\n");
             }
             let rm = serde_json::to_value(&kb).ok();
-            let _ = client.send_message(msg.chat.id, &help, rm).await;
+            client.send_message(msg.chat.id, &help, rm).await?;
+            Ok(())
         }
     });
 
@@ -86,13 +87,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let users = users_for_start.clone();
         let kb = kb_start.clone();
         let admin = admin_for_start;
-        async move {
+        async move -> Result<(), BotError> {
             let mut us = users.write().await;
             us.insert(msg.chat.id);
             let name = msg.from.as_ref().map(|u| u.first_name.clone()).unwrap_or_else(|| "there".to_string());
             let welcome = format!("Hello, {}! Welcome. Type /help to see available commands.", name);
             let rm = serde_json::to_value(&kb).ok();
-            let _ = client.send_message(msg.chat.id, &welcome, rm).await;
+            client.send_message(msg.chat.id, &welcome, rm).await?;
 
             let mut info = String::new();
             info.push_str("New /start received:\n\n");
@@ -118,38 +119,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     client.send_document_path(aid, &path_str).await
                 };
             }
+            Ok(())
         }
     });
 
-    disp.add_command("ping", |client: Client, msg: Message| async move {
-        let _ = client.send_message(msg.chat.id, "pong", None).await;
+    disp.add_command("ping", |client: Client, msg: Message| async move -> Result<(), BotError> {
+        client.send_message(msg.chat.id, "pong", None).await?;
+        Ok(())
     });
 
-    disp.add_command("echo", |client: Client, msg: Message| async move {
+    disp.add_command("echo", |client: Client, msg: Message| async move -> Result<(), BotError> {
         if let Some(text) = msg.text {
             let parts: Vec<&str> = text.splitn(2, ' ').collect();
             let resp = if parts.len() > 1 { parts[1].to_string() } else { "".to_string() };
-            let _ = client.send_message(msg.chat.id, &resp, None).await;
+            client.send_message(msg.chat.id, &resp, None).await?;
         }
+        Ok(())
     });
 
-    disp.add_command("whoami", |client: Client, msg: Message| async move {
+    disp.add_command("whoami", |client: Client, msg: Message| async move -> Result<(), BotError> {
         let user = msg.from;
         if let Some(u) = user {
             let name = u.username.clone().unwrap_or_else(|| u.first_name.clone());
             let resp = format!("id: {}\nusername: {}", u.id, name);
-            let _ = client.send_message(msg.chat.id, &resp, None).await;
+            client.send_message(msg.chat.id, &resp, None).await?;
         }
+        Ok(())
     });
 
     let admin_for_inspect = admin;
     disp.add_command("inspect", move |client: Client, msg: Message| {
         let admin = admin_for_inspect;
-        async move {
+        async move -> Result<(), BotError> {
             let allowed = msg.from.as_ref().map(|u| Some(u.id) == admin).unwrap_or(false);
             if !allowed {
-                let _ = client.send_message(msg.chat.id, "not allowed", None).await;
-                return;
+                client.send_message(msg.chat.id, "not allowed", None).await?;
+                return Ok(());
             }
 
             let target_id_opt = if let Some(text) = &msg.text {
@@ -201,39 +206,43 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Err(_) => { report.push_str("failed to get profile photos\n"); }
             }
 
-            let _ = client.send_message(msg.chat.id, &report, None).await;
+            client.send_message(msg.chat.id, &report, None).await?;
+            Ok(())
         }
     });
 
     disp.add_command("keyboard", move |client: Client, msg: Message| {
         let rm = kb_keyboard.clone();
-        async move {
+        async move -> Result<(), BotError> {
             let rmv = serde_json::to_value(&rm).ok();
-            let _ = client.send_message(msg.chat.id, "Choose:", rmv).await;
+            client.send_message(msg.chat.id, "Choose:", rmv).await?;
+            Ok(())
         }
     });
 
-    disp.add_command("inline", |client: Client, msg: Message| async move {
+    disp.add_command("inline", |client: Client, msg: Message| async move -> Result<(), BotError> {
         let inline = types::ReplyMarkup::InlineKeyboard(types::InlineKeyboardMarkup {
             inline_keyboard: vec![vec![types::InlineKeyboardButton { text: "Say hi".to_string(), callback_data: Some("echo Hello from button".to_string()), url: None }]]
         });
         let rm = serde_json::to_value(&inline).ok();
-        let _ = client.send_message(msg.chat.id, "Inline example:", rm).await;
+        client.send_message(msg.chat.id, "Inline example:", rm).await?;
+        Ok(())
     });
 
-    disp.add_callback(|client: Client, cb: types::CallbackQuery| async move {
+    disp.add_callback(|client: Client, cb: types::CallbackQuery| async move -> Result<(), BotError> {
         let _ = client.answer_callback_query(&cb.id, Some("Received"), Some(false), None, None).await;
         if let Some(msg) = cb.message {
             let chat_id = msg.chat.id;
             let d = cb.data.unwrap_or_else(|| "(no data)".to_string());
-            let _ = client.send_message(chat_id, &format!("Button pressed: {}", d), None).await;
+            client.send_message(chat_id, &format!("Button pressed: {}", d), None).await?;
         }
+        Ok(())
     });
 
     let kv_set = kv.clone();
     disp.add_command("set", move |_client: Client, msg: Message| {
         let kv = kv_set.clone();
-        async move {
+        async move -> Result<(), BotError> {
             if let Some(text) = msg.text {
                 let mut parts = text.splitn(3, ' ');
                 parts.next(); 
@@ -244,21 +253,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
             }
+            Ok(())
         }
     });
 
     let kv_get = kv.clone();
     disp.add_command("get", move |client: Client, msg: Message| {
         let kv = kv_get.clone();
-        async move {
+        async move -> Result<(), BotError> {
             if let Some(text) = msg.text {
                 let mut parts = text.splitn(2, ' ');
                 parts.next();
                 if let Some(k) = parts.next() {
                     let v = kv.read().await.get(k).cloned().unwrap_or_else(|| "(not set)".to_string());
-                    let _ = client.send_message(msg.chat.id, &v, None).await;
+                    client.send_message(msg.chat.id, &v, None).await?;
                 }
             }
+            Ok(())
         }
     });
 
@@ -266,25 +277,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     disp.add_command("broadcast", move |client: Client, msg: Message| {
         let users = users_clone.clone();
         let admin = admin_id;
-        async move {
-            if admin.is_none() { let _ = client.send_message(msg.chat.id, "ADMIN_ID not set", None).await; return; }
+        async move -> Result<(), BotError> {
+            if admin.is_none() { let _ = client.send_message(msg.chat.id, "ADMIN_ID not set", None).await; return Ok(()); }
             let allowed = msg.from.as_ref().map(|u| Some(u.id) == admin).unwrap_or(false);
-            if !allowed { let _ = client.send_message(msg.chat.id, "not allowed", None).await; return; }
+            if !allowed { let _ = client.send_message(msg.chat.id, "not allowed", None).await; return Ok(()); }
             if let Some(text) = msg.text {
                 let parts: Vec<&str> = text.splitn(2, ' ').collect();
-                if parts.len() < 2 { let _ = client.send_message(msg.chat.id, "usage: /broadcast <text>", None).await; return; }
+                if parts.len() < 2 { let _ = client.send_message(msg.chat.id, "usage: /broadcast <text>", None).await; return Ok(()); }
                 let body = parts[1];
                 let list: Vec<i64> = users.read().await.iter().cloned().collect();
                 for uid in list {
                     let _ = client.send_message(uid, body, None).await;
                 }
             }
+            Ok(())
         }
     });
 
-    disp.add_command("upload", |client: Client, msg: Message| async move {
+    disp.add_command("upload", |client: Client, msg: Message| async move -> Result<(), BotError> {
         let path = "README.md";
-        let _ = client.send_document_path(msg.chat.id, path).await;
+        client.send_document_path(msg.chat.id, path).await?;
+        Ok(())
     });
 
     let users_c = users.clone();
@@ -292,12 +305,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     disp.add_command("stats", move |client: Client, msg: Message| {
         let users = users_c.clone();
         let counters = counters_c.clone();
-        async move {
+        async move -> Result<(), BotError> {
             let u = users.read().await.len();
             let stats = counters.read().await.clone();
             let mut s = format!("users: {}\n", u);
             for (k,v) in stats { s.push_str(&format!("{}: {}\n", k, v)); }
-            let _ = client.send_message(msg.chat.id, &s, None).await;
+            client.send_message(msg.chat.id, &s, None).await?;
+            Ok(())
         }
     });
 

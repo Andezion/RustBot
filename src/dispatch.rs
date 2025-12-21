@@ -2,12 +2,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use futures::future::BoxFuture;
 use futures::FutureExt;
-use crate::client::Client;
+use crate::client::{Client, BotError};
 use crate::types::{Message, CallbackQuery};
 use tracing::error;
 
-pub type Handler = Arc<dyn Fn(Client, Message) -> BoxFuture<'static, ()> + Send + Sync>;
-pub type CallbackHandler = Arc<dyn Fn(Client, CallbackQuery) -> BoxFuture<'static, ()> + Send + Sync>;
+pub type Handler = Arc<dyn Fn(Client, Message) -> BoxFuture<'static, Result<(), BotError>> + Send + Sync>;
+pub type CallbackHandler = Arc<dyn Fn(Client, CallbackQuery) -> BoxFuture<'static, Result<(), BotError>> + Send + Sync>;
 
 pub struct Dispatcher {
     commands: HashMap<String, Vec<Handler>>,
@@ -22,7 +22,7 @@ impl Dispatcher {
     pub fn add_command<F, Fut>(&mut self, cmd: &str, f: F)
     where
         F: Fn(Client, Message) -> Fut + Send + Sync + 'static,
-        Fut: std::future::Future<Output = ()> + Send + 'static,
+        Fut: std::future::Future<Output = Result<(), BotError>> + Send + 'static,
     {
         let h: Handler = Arc::new(move |client: Client, msg: Message| {
             (f)(client, msg).boxed()
@@ -34,7 +34,7 @@ impl Dispatcher {
     pub fn add_callback<F, Fut>(&mut self, f: F)
     where
         F: Fn(Client, CallbackQuery) -> Fut + Send + Sync + 'static,
-        Fut: std::future::Future<Output = ()> + Send + 'static,
+        Fut: std::future::Future<Output = Result<(), BotError>> + Send + 'static,
     {
         let h: CallbackHandler = Arc::new(move |client: Client, cb: CallbackQuery| {
             (f)(client, cb).boxed()
@@ -51,11 +51,13 @@ impl Dispatcher {
                     for h in handlers {
                         let c = client.clone();
                         let m = msg.clone();
-                        
+
                         let fut = h(c, m);
                         tokio::spawn(async move {
-                            if let Err(e) = std::panic::AssertUnwindSafe(fut).catch_unwind().await {
-                                error!("handler panicked: {:?}", e);
+                            match std::panic::AssertUnwindSafe(fut).catch_unwind().await {
+                                Ok(Ok(())) => {}
+                                Ok(Err(e)) => { error!("handler error: {}", %e); }
+                                Err(p) => { error!("handler panicked: {:?}", p); }
                             }
                         });
                     }
@@ -70,8 +72,10 @@ impl Dispatcher {
             let cb_clone = cb.clone();
             let fut = h(c, cb_clone);
             tokio::spawn(async move {
-                if let Err(e) = std::panic::AssertUnwindSafe(fut).catch_unwind().await {
-                    error!("callback handler panicked: {:?}", e);
+                match std::panic::AssertUnwindSafe(fut).catch_unwind().await {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) => { error!("callback handler error: {}", %e); }
+                    Err(p) => { error!("callback handler panicked: {:?}", p); }
                 }
             });
         }
