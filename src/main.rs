@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use std::collections::{HashMap, HashSet};
 use tokio::time::{sleep, Duration};
-use client::{Client, BotError};
+use client::{Client};
 use dispatch::Dispatcher;
 use types::Message;
 
@@ -310,7 +310,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let stats = counters.read().await.clone();
             let mut s = format!("users: {}\n", u);
             for (k,v) in stats { s.push_str(&format!("{}: {}\n", k, v)); }
-            let _ = client.send_message(msg.chat.id, &s, None).await;
+            client.send_message(msg.chat.id, &s, None).await?;
+            Ok(())
         }
     });
 
