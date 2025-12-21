@@ -4,6 +4,7 @@ use futures::future::BoxFuture;
 use futures::FutureExt;
 use crate::client::Client;
 use crate::types::Message;
+use tracing::error;
 
 pub type Handler = Arc<dyn Fn(Client, Message) -> BoxFuture<'static, ()> + Send + Sync>;
 
@@ -37,7 +38,13 @@ impl Dispatcher {
                     for h in handlers {
                         let c = client.clone();
                         let m = msg.clone();
-                        h(c, m).await;
+                        // spawn each handler so one slow handler doesn't block others
+                        let fut = h(c, m);
+                        tokio::spawn(async move {
+                            if let Err(e) = std::panic::AssertUnwindSafe(fut).catch_unwind().await {
+                                error!("handler panicked: {:?}", e);
+                            }
+                        });
                     }
                 }
             }

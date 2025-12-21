@@ -3,21 +3,22 @@ mod types;
 mod dispatch;
 
 use std::env;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use std::collections::{HashMap, HashSet};
 use tokio::time::{sleep, Duration};
 use client::Client;
 use dispatch::Dispatcher;
 use types::Message;
-// EXIF parsing removed to avoid native dependencies on Windows
 
-type KvStore = Arc<Mutex<HashMap<String, String>>>;
-type Users = Arc<Mutex<HashSet<i64>>>;
-type Counters = Arc<Mutex<HashMap<String, u64>>>;
+type KvStore = Arc<RwLock<HashMap<String, String>>>;
+type Users = Arc<RwLock<HashSet<i64>>>;
+type Counters = Arc<RwLock<HashMap<String, u64>>>;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = dotenvy::dotenv();
+    tracing_subscriber::fmt::init();
     let token = env::var("TELEGRAM_BOT_TOKEN")
         .expect("Please set the TELEGRAM_BOT_TOKEN environment variable");
 
@@ -27,9 +28,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::new(token);
     let mut offset: i64 = 0;
 
-    let kv: KvStore = Arc::new(Mutex::new(HashMap::new()));
-    let users: Users = Arc::new(Mutex::new(HashSet::new()));
-    let counters: Counters = Arc::new(Mutex::new(HashMap::new()));
+    let kv: KvStore = Arc::new(RwLock::new(HashMap::new()));
+    let users: Users = Arc::new(RwLock::new(HashSet::new()));
+    let counters: Counters = Arc::new(RwLock::new(HashMap::new()));
 
     let mut disp = Dispatcher::new();
 
@@ -78,7 +79,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let kb = kb_start.clone();
         let admin = admin_for_start;
         async move {
-            users.lock().unwrap().insert(msg.chat.id);
+            let mut us = users.write().await;
+            us.insert(msg.chat.id);
             let name = msg.from.as_ref().map(|u| u.first_name.clone()).unwrap_or_else(|| "there".to_string());
             let welcome = format!("Hello, {}! Welcome. Type /help to see available commands.", name);
             let _ = client.send_message(msg.chat.id, &welcome, Some(kb)).await;
@@ -217,7 +219,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 parts.next(); 
                 if let Some(k) = parts.next() {
                     if let Some(v) = parts.next() {
-                        kv.lock().unwrap().insert(k.to_string(), v.to_string());
+                        let mut map = kv.write().await;
+                        map.insert(k.to_string(), v.to_string());
                     }
                 }
             }
@@ -232,7 +235,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut parts = text.splitn(2, ' ');
                 parts.next();
                 if let Some(k) = parts.next() {
-                    let v = kv.lock().unwrap().get(k).cloned().unwrap_or_else(|| "(not set)".to_string());
+                    let v = kv.read().await.get(k).cloned().unwrap_or_else(|| "(not set)".to_string());
                     let _ = client.send_message(msg.chat.id, &v, None).await;
                 }
             }
@@ -251,7 +254,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let parts: Vec<&str> = text.splitn(2, ' ').collect();
                 if parts.len() < 2 { let _ = client.send_message(msg.chat.id, "usage: /broadcast <text>", None).await; return; }
                 let body = parts[1];
-                let list: Vec<i64> = users.lock().unwrap().iter().cloned().collect();
+                let list: Vec<i64> = users.read().await.iter().cloned().collect();
                 for uid in list {
                     let _ = client.send_message(uid, body, None).await;
                 }
@@ -270,15 +273,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let users = users_c.clone();
         let counters = counters_c.clone();
         async move {
-            let u = users.lock().unwrap().len();
-            let stats = counters.lock().unwrap().clone();
+            let u = users.read().await.len();
+            let stats = counters.read().await.clone();
             let mut s = format!("users: {}\n", u);
             for (k,v) in stats { s.push_str(&format!("{}: {}\n", k, v)); }
             let _ = client.send_message(msg.chat.id, &s, None).await;
         }
     });
 
-    println!("Starting polling bot with dispatcher... (press Ctrl+C to stop)");
+    tracing::info!("Starting polling bot with dispatcher... (press Ctrl+C to stop)");
 
     loop {
         tokio::select! {
@@ -336,7 +339,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
                     Err(e) => {
-                        eprintln!("poll error: {}", e);
+                        tracing::error!("poll error: {}", %e);
                         sleep(Duration::from_secs(2)).await;
                     }
                 }
