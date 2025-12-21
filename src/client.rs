@@ -9,7 +9,6 @@ use std::path::Path;
 use tokio::time::{sleep, Duration};
 use tracing::{warn};
 use tokio_util::io::ReaderStream;
-use std::time::Duration as StdDuration;
 
 #[derive(Error, Debug)]
 pub enum BotError {
@@ -30,12 +29,6 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(token: impl Into<String>) -> Self {
-        let token = token.into();
-        let base = format!("https://api.telegram.org/bot{}", token);
-        Self { base, http: HttpClient::new() }
-    }
-
     pub fn builder(token: impl Into<String>) -> ClientBuilder {
         ClientBuilder::new(token)
     }
@@ -50,11 +43,6 @@ pub struct ClientBuilder {
 impl ClientBuilder {
     pub fn new(token: impl Into<String>) -> Self {
         Self { token: token.into(), http_builder: reqwest::Client::builder() }
-    }
-
-    pub fn timeout(mut self, dur: StdDuration) -> Self {
-        self.http_builder = self.http_builder.timeout(dur);
-        self
     }
 
     pub fn build(self) -> Client {
