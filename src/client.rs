@@ -101,6 +101,7 @@ impl Client {
     pub async fn send_message(&self, chat_id: i64, text: &str, reply_markup: Option<serde_json::Value>) -> Result<serde_json::Value, BotError> {
         
         let chunks = chunk_message(text, 4000);
+        let total = chunks.len();
         let mut last_res: Option<serde_json::Value> = None;
         for (i, chunk) in chunks.into_iter().enumerate() {
             let mut params = serde_json::json!({"chat_id": chat_id, "text": chunk});
@@ -113,7 +114,7 @@ impl Client {
             let res = self.send_raw("sendMessage", &params).await?;
             last_res = Some(res);
             
-            if i + 1 < chunks.len() {
+            if i + 1 < total {
                 sleep(Duration::from_millis(120)).await;
             }
         }

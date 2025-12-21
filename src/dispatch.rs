@@ -55,10 +55,10 @@ impl Dispatcher {
                         let fut = h(c, m);
                         tokio::spawn(async move {
                             match std::panic::AssertUnwindSafe(fut).catch_unwind().await {
-                                Ok(Ok(())) => {}
-                                Ok(Err(e)) => { error!("handler error: {}", %e); }
-                                Err(p) => { error!("handler panicked: {:?}", p); }
-                            }
+                                    Ok(Ok(())) => {}
+                                    Ok(Err(e)) => { error!("handler error: {}", e); }
+                                    Err(p) => { error!("handler panicked: {:?}", p); }
+                                }
                         });
                     }
                 }
@@ -74,7 +74,7 @@ impl Dispatcher {
             tokio::spawn(async move {
                 match std::panic::AssertUnwindSafe(fut).catch_unwind().await {
                     Ok(Ok(())) => {}
-                    Ok(Err(e)) => { error!("callback handler error: {}", %e); }
+                    Ok(Err(e)) => { error!("callback handler error: {}", e); }
                     Err(p) => { error!("callback handler panicked: {:?}", p); }
                 }
             });
