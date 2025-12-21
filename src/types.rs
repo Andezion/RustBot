@@ -103,3 +103,42 @@ pub struct UserProfilePhotos {
     pub photos: Vec<Vec<PhotoSize>>, 
 }
 
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct KeyboardButton {
+    pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_contact: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_location: Option<bool>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct ReplyKeyboardMarkup {
+    pub keyboard: Vec<Vec<KeyboardButton>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub one_time_keyboard: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resize_keyboard: Option<bool>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct InlineKeyboardButton {
+    pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub callback_data: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct InlineKeyboardMarkup {
+    pub inline_keyboard: Vec<Vec<InlineKeyboardButton>>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+#[serde(untagged)]
+pub enum ReplyMarkup {
+    ReplyKeyboard(ReplyKeyboardMarkup),
+    InlineKeyboard(InlineKeyboardMarkup),
+}
+

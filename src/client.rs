@@ -107,13 +107,15 @@ impl Client {
 
     pub async fn send_document_path(&self, chat_id: i64, path: &str) -> Result<serde_json::Value, BotError> {
         let url = format!("{}/sendDocument", self.base);
-        let data = fs::read(path).await?;
+        let file = fs::File::open(path).await?;
         let filename = Path::new(path)
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("file")
             .to_string();
-        let part = Part::bytes(data).file_name(filename);
+        let stream = ReaderStream::new(file);
+        let body = reqwest::Body::wrap_stream(stream);
+        let part = Part::stream(body).file_name(filename);
         let form = Form::new().text("chat_id", chat_id.to_string()).part("document", part);
         let resp = self.http.post(&url).multipart(form).send().await?;
         let text = resp.text().await?;

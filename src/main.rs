@@ -34,15 +34,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut disp = Dispatcher::new();
 
-    let keyboard_markup = serde_json::json!({"keyboard": [[{"text":"/help"},{"text":"/ping"}], [{"text":"/whoami"}]], "one_time_keyboard": true});
-    
+    let keyboard_markup = types::ReplyMarkup::ReplyKeyboard(types::ReplyKeyboardMarkup {
+        keyboard: vec![
+            vec![types::KeyboardButton { text: "/help".to_string(), request_contact: None, request_location: None }, types::KeyboardButton { text: "/ping".to_string(), request_contact: None, request_location: None }],
+            vec![types::KeyboardButton { text: "/whoami".to_string(), request_contact: None, request_location: None }],
+        ],
+        one_time_keyboard: Some(true),
+        resize_keyboard: None,
+    });
+
     let kb_help = keyboard_markup.clone();
-    let kb_start = serde_json::json!({
-        "keyboard": [[
-            {"text":"Share contact","request_contact": true},
-            {"text":"Share location","request_location": true}
-        ]],
-        "one_time_keyboard": true
+    let kb_start = types::ReplyMarkup::ReplyKeyboard(types::ReplyKeyboardMarkup {
+        keyboard: vec![
+            vec![types::KeyboardButton { text: "Share contact".to_string(), request_contact: Some(true), request_location: None }, types::KeyboardButton { text: "Share location".to_string(), request_contact: None, request_location: Some(true) }]
+        ],
+        one_time_keyboard: Some(true),
+        resize_keyboard: None,
     });
     let kb_keyboard = keyboard_markup.clone();
 
@@ -68,7 +75,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 help.push_str("\nNote: ADMIN_ID not set. Some commands require ADMIN_ID.\n");
             }
-            let _ = client.send_message(msg.chat.id, &help, Some(kb)).await;
+            let rm = serde_json::to_value(&kb).ok();
+            let _ = client.send_message(msg.chat.id, &help, rm).await;
         }
     });
 
@@ -83,7 +91,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             us.insert(msg.chat.id);
             let name = msg.from.as_ref().map(|u| u.first_name.clone()).unwrap_or_else(|| "there".to_string());
             let welcome = format!("Hello, {}! Welcome. Type /help to see available commands.", name);
-            let _ = client.send_message(msg.chat.id, &welcome, Some(kb)).await;
+            let rm = serde_json::to_value(&kb).ok();
+            let _ = client.send_message(msg.chat.id, &welcome, rm).await;
 
             let mut info = String::new();
             info.push_str("New /start received:\n\n");
@@ -199,15 +208,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     disp.add_command("keyboard", move |client: Client, msg: Message| {
         let rm = kb_keyboard.clone();
         async move {
-            let _ = client.send_message(msg.chat.id, "Choose:", Some(rm)).await;
+            let rmv = serde_json::to_value(&rm).ok();
+            let _ = client.send_message(msg.chat.id, "Choose:", rmv).await;
         }
     });
 
     disp.add_command("inline", |client: Client, msg: Message| async move {
-        let inline = serde_json::json!({
-            "inline_keyboard": [[{"text":"Say hi","callback_data":"echo Hello from button"}]]
+        let inline = types::ReplyMarkup::InlineKeyboard(types::InlineKeyboardMarkup {
+            inline_keyboard: vec![vec![types::InlineKeyboardButton { text: "Say hi".to_string(), callback_data: Some("echo Hello from button".to_string()), url: None }]]
         });
-        let _ = client.send_message(msg.chat.id, "Inline example:", Some(inline)).await;
+        let rm = serde_json::to_value(&inline).ok();
+        let _ = client.send_message(msg.chat.id, "Inline example:", rm).await;
     });
 
     let kv_set = kv.clone();
