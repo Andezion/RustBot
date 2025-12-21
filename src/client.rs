@@ -7,7 +7,7 @@ use reqwest::multipart::{Form, Part};
 use tokio::fs;
 use std::path::Path;
 use tokio::time::{sleep, Duration};
-use tracing::{warn, info};
+use tracing::{warn};
 
 #[derive(Error, Debug)]
 pub enum BotError {
