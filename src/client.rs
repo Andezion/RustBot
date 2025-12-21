@@ -99,11 +99,25 @@ impl Client {
     }
 
     pub async fn send_message(&self, chat_id: i64, text: &str, reply_markup: Option<serde_json::Value>) -> Result<serde_json::Value, BotError> {
-        let mut params = serde_json::json!({"chat_id": chat_id, "text": text});
-        if let Some(rm) = reply_markup {
-            params["reply_markup"] = rm;
+        
+        let chunks = chunk_message(text, 4000);
+        let mut last_res: Option<serde_json::Value> = None;
+        for (i, chunk) in chunks.into_iter().enumerate() {
+            let mut params = serde_json::json!({"chat_id": chat_id, "text": chunk});
+            
+            if i == 0 {
+                if let Some(rm) = reply_markup.clone() {
+                    params["reply_markup"] = rm;
+                }
+            }
+            let res = self.send_raw("sendMessage", &params).await?;
+            last_res = Some(res);
+            
+            if i + 1 < chunks.len() {
+                sleep(Duration::from_millis(120)).await;
+            }
         }
-        self.send_raw("sendMessage", &params).await
+        Ok(last_res.unwrap_or_else(|| serde_json::Value::Null))
     }
 
     pub async fn send_document_path(&self, chat_id: i64, path: &str) -> Result<serde_json::Value, BotError> {
@@ -246,4 +260,48 @@ fn parse_retry_after_from_description(desc: &str) -> Option<u64> {
         }
     }
     None
+}
+
+fn chunk_message(s: &str, max_len: usize) -> Vec<String> {
+    if s.len() <= max_len { return vec![s.to_string()]; }
+    let mut parts: Vec<String> = Vec::new();
+    
+    let paragraphs: Vec<&str> = s.split('\n').collect();
+    let mut current = String::new();
+    for p in paragraphs {
+        if !current.is_empty() {
+            if current.len() + 1 + p.len() <= max_len {
+                current.push('\n');
+                current.push_str(p);
+                continue;
+            } else {
+                parts.push(current);
+                current = String::new();
+            }
+        }
+        if p.len() <= max_len {
+            current.push_str(p);
+        } else {
+            let mut chunk = String::new();
+            for word in p.split_whitespace() {
+                if chunk.is_empty() {
+                    chunk.push_str(word);
+                } else if chunk.len() + 1 + word.len() <= max_len {
+                    chunk.push(' ');
+                    chunk.push_str(word);
+                } else {
+                    parts.push(chunk);
+                    chunk = word.to_string();
+                }
+            }
+            if !chunk.is_empty() {
+                parts.push(chunk);
+            }
+            continue;
+        }
+    }
+    if !current.is_empty() {
+        parts.push(current);
+    }
+    parts
 }
