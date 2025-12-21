@@ -221,6 +221,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let _ = client.send_message(msg.chat.id, "Inline example:", rm).await;
     });
 
+    disp.add_callback(|client: Client, cb: types::CallbackQuery| async move {
+        let _ = client.answer_callback_query(&cb.id, Some("Received"), Some(false), None, None).await;
+        if let Some(msg) = cb.message {
+            let chat_id = msg.chat.id;
+            let d = cb.data.unwrap_or_else(|| "(no data)".to_string());
+            let _ = client.send_message(chat_id, &format!("Button pressed: {}", d), None).await;
+        }
+    });
+
     let kv_set = kv.clone();
     disp.add_command("set", move |_client: Client, msg: Message| {
         let kv = kv_set.clone();
