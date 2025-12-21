@@ -342,12 +342,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                             
                             if let Some(cb) = u.callback_query {
-                                if let Some(data) = cb.data {
-                                    
-                                    let synthetic_chat = if let Some(m) = cb.message.clone() { m.chat.clone() } else { types::Chat { id: cb.from.id, kind: None, username: None, first_name: None, last_name: None } };
-                                    let synthetic = Message { message_id: 0, text: Some(data), chat: synthetic_chat, from: Some(cb.from), contact: None, location: None };
-                                    disp.dispatch(client.clone(), synthetic).await;
-                                }
+                                disp.dispatch_callback(client.clone(), cb).await;
                             }
                         }
                     }

@@ -207,6 +207,30 @@ impl Client {
         let bytes = resp.bytes().await?;
         Ok(bytes.to_vec())
     }
+
+    pub async fn answer_callback_query(
+        &self,
+        callback_query_id: &str,
+        text: Option<&str>,
+        show_alert: Option<bool>,
+        url: Option<&str>,
+        cache_time: Option<i32>,
+    ) -> Result<serde_json::Value, BotError> {
+        let mut params = serde_json::json!({"callback_query_id": callback_query_id});
+        if let Some(t) = text {
+            params["text"] = serde_json::Value::String(t.to_string());
+        }
+        if let Some(sa) = show_alert {
+            params["show_alert"] = serde_json::Value::Bool(sa);
+        }
+        if let Some(u) = url {
+            params["url"] = serde_json::Value::String(u.to_string());
+        }
+        if let Some(ct) = cache_time {
+            params["cache_time"] = serde_json::Value::Number(serde_json::Number::from(ct));
+        }
+        self.send_raw("answerCallbackQuery", &params).await
+    }
 }
 
 fn parse_retry_after_from_description(desc: &str) -> Option<u64> {
