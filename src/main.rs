@@ -299,7 +299,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             offset = u.update_id + 1;
                             
                             if let Some(msg) = &u.message {
-                                users.lock().unwrap().insert(msg.chat.id);
+                                let mut us = users.write().await;
+                                us.insert(msg.chat.id);
                             }
                             
                             if let Some(msg) = u.message {
@@ -307,10 +308,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 if let Some(text) = &msg.text {
                                     if text.chars().next() == Some('/') {
                                         let cmd = text.split_whitespace().next().unwrap_or("").trim_start_matches('/').to_string();
-                                        *counters.lock().unwrap().entry(cmd).or_insert(0) += 1;
+                                        let mut ctr = counters.write().await;
+                                        *ctr.entry(cmd).or_insert(0) += 1;
                                     }
                                 }
-                                println!("Message from {}: {}", msg.chat.id, msg.text.clone().unwrap_or_default());
+                                tracing::info!("Message from {}: {}", msg.chat.id, msg.text.clone().unwrap_or_default());
 
                                 if let Some(aid) = admin {
                                     if let Some(contact) = &msg.contact {
@@ -339,7 +341,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
                     Err(e) => {
-                        tracing::error!("poll error: {}", %e);
+                        tracing::error!("poll error: {}", e);
                         sleep(Duration::from_secs(2)).await;
                     }
                 }

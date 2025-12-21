@@ -44,12 +44,13 @@ impl Client {
             attempt += 1;
             let resp = self.http.post(&url).json(params).send().await?;
             let status = resp.status();
+            let headers = resp.headers().clone();
             let text = resp.text().await?;
 
             let api: Result<ApiResponse<serde_json::Value>, serde_json::Error> = serde_json::from_str(&text);
 
             if status.as_u16() == 429 {
-                let retry_after = resp.headers()
+                let retry_after = headers
                     .get(reqwest::header::RETRY_AFTER)
                     .and_then(|v| v.to_str().ok())
                     .and_then(|s| s.parse::<u64>().ok());
@@ -130,10 +131,11 @@ impl Client {
             attempt += 1;
             let resp = self.http.post(&url).json(params).send().await?;
             let status = resp.status();
+            let headers = resp.headers().clone();
             let text = resp.text().await?;
 
             if status.as_u16() == 429 {
-                let retry_after = resp.headers()
+                let retry_after = headers
                     .get(reqwest::header::RETRY_AFTER)
                     .and_then(|v| v.to_str().ok())
                     .and_then(|s| s.parse::<u64>().ok());
