@@ -340,7 +340,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             if let Some(msg) = u.message {
                                 
                                 if let Some(text) = &msg.text {
-                                    if text.chars().next() == Some('/') {
+                                    if text.starts_with('/') {
                                         let cmd = text.split_whitespace().next().unwrap_or("").trim_start_matches('/').to_string();
                                         let mut ctr = counters.write().await;
                                         *ctr.entry(cmd).or_insert(0) += 1;

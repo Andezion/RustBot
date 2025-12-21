@@ -36,11 +36,11 @@ impl Client {
         Self { base, http: HttpClient::new() }
     }
 
-    /// Start building a `Client` with configurable `reqwest::ClientBuilder` options.
     pub fn builder(token: impl Into<String>) -> ClientBuilder {
         ClientBuilder::new(token)
     }
 
+}
 
 pub struct ClientBuilder {
     token: String,
@@ -63,6 +63,7 @@ impl ClientBuilder {
         Client { base, http }
     }
 }
+impl Client {
     pub async fn send_raw<P: Serialize>(&self, method: &str, params: &P) -> Result<serde_json::Value, BotError> {
         let url = format!("{}/{}", self.base, method);
         let mut attempt: u32 = 0;
