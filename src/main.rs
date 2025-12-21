@@ -25,7 +25,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let admin_id: Option<i64> = env::var("ADMIN_ID").ok().and_then(|s| s.parse().ok());
     let admin = admin_id; 
 
-    let client = Client::new(token);
+    let client = Client::builder(token).build();
     let mut offset: i64 = 0;
 
     let kv: KvStore = Arc::new(RwLock::new(HashMap::new()));

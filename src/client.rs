@@ -9,6 +9,7 @@ use std::path::Path;
 use tokio::time::{sleep, Duration};
 use tracing::{warn};
 use tokio_util::io::ReaderStream;
+use std::time::Duration as StdDuration;
 
 #[derive(Error, Debug)]
 pub enum BotError {
@@ -35,6 +36,33 @@ impl Client {
         Self { base, http: HttpClient::new() }
     }
 
+    /// Start building a `Client` with configurable `reqwest::ClientBuilder` options.
+    pub fn builder(token: impl Into<String>) -> ClientBuilder {
+        ClientBuilder::new(token)
+    }
+
+
+pub struct ClientBuilder {
+    token: String,
+    http_builder: reqwest::ClientBuilder,
+}
+
+impl ClientBuilder {
+    pub fn new(token: impl Into<String>) -> Self {
+        Self { token: token.into(), http_builder: reqwest::Client::builder() }
+    }
+
+    pub fn timeout(mut self, dur: StdDuration) -> Self {
+        self.http_builder = self.http_builder.timeout(dur);
+        self
+    }
+
+    pub fn build(self) -> Client {
+        let http = self.http_builder.build().expect("failed to build reqwest client");
+        let base = format!("https://api.telegram.org/bot{}", self.token);
+        Client { base, http }
+    }
+}
     pub async fn send_raw<P: Serialize>(&self, method: &str, params: &P) -> Result<serde_json::Value, BotError> {
         let url = format!("{}/{}", self.base, method);
         let mut attempt: u32 = 0;
