@@ -5,7 +5,6 @@ pub mod admin;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use std::collections::{HashMap, HashSet};
-use crate::client::Client;
 use crate::dispatch::Dispatcher;
 use crate::types::ReplyMarkup;
 

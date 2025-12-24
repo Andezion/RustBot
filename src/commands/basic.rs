@@ -3,7 +3,7 @@ use crate::dispatch::Dispatcher;
 use crate::types::{Message, ReplyMarkup};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashSet};
 
 pub fn register(
     disp: &mut Dispatcher,
