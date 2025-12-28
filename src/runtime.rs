@@ -7,6 +7,7 @@ use crate::client::Client;
 use crate::dispatch::Dispatcher;
 use std::path::PathBuf;
 use tokio::fs as tokio_fs;
+use chrono::Utc;
 
 type KvStore = Arc<RwLock<HashMap<String, String>>>;
 type Users = Arc<RwLock<HashSet<i64>>>;
@@ -84,10 +85,6 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         tokio::spawn(async move {
             loop {
                 sleep(Duration::from_secs(AUTOSAVE_INTERVAL_SECS)).await;
-                if let Ok(map) = kv_s.read().await.clone().try_into() {
-                }
-                if let Ok(kvmap) = kv_s.read().await.clone().try_into() {
-                }
                 let kv_json = serde_json::to_vec(&*kv_s.read().await).unwrap_or_default();
                 let _ = tokio_fs::write(KV_FILE, kv_json).await;
                 let users_json = serde_json::to_vec(&*users_s.read().await).unwrap_or_default();
