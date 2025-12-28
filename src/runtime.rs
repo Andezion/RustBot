@@ -104,6 +104,8 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     crate::commands::register(&mut disp, admin, kv.clone(), users.clone(), counters.clone(), kb_help, kb_start, kb_keyboard);
 
+    disp.set_admin(admin);
+
     let max_handlers: usize = env::var("MAX_CONCURRENT_HANDLERS").ok().and_then(|s| s.parse().ok()).unwrap_or(50);
     let sem = Arc::new(tokio::sync::Semaphore::new(max_handlers));
     disp.set_concurrency_limit(sem.clone());

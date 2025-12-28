@@ -14,15 +14,20 @@ pub struct Dispatcher {
     commands: HashMap<String, Vec<Handler>>,
     callbacks: Vec<CallbackHandler>,
     handler_sem: Option<Arc<Semaphore>>,
+    admin: Option<i64>,
 }
 
 impl Dispatcher {
     pub fn new() -> Self {
-        Self { commands: HashMap::new(), callbacks: Vec::new(), handler_sem: None }
+        Self { commands: HashMap::new(), callbacks: Vec::new(), handler_sem: None, admin: None }
     }
 
     pub fn set_concurrency_limit(&mut self, sem: Arc<Semaphore>) {
         self.handler_sem = Some(sem);
+    }
+
+    pub fn set_admin(&mut self, admin: Option<i64>) {
+        self.admin = admin;
     }
 
     pub fn add_command<F, Fut>(&mut self, cmd: &str, f: F)
@@ -57,8 +62,10 @@ impl Dispatcher {
                     for h in handlers {
                         let c = client.clone();
                         let m = msg.clone();
+                        let cmd_clone = cmd.clone();
 
                         let sem = self.handler_sem.clone();
+                        let admin = self.admin;
                         let fut = h(c, m);
                         tokio::spawn(async move {
                             let _permit = if let Some(s) = sem {
@@ -69,8 +76,18 @@ impl Dispatcher {
                             } else { None };
                             match std::panic::AssertUnwindSafe(fut).catch_unwind().await {
                                 Ok(Ok(())) => {}
-                                Ok(Err(e)) => { error!("handler error: {}", e); }
-                                Err(p) => { error!("handler panicked: {:?}", p); }
+                                Ok(Err(e)) => {
+                                    error!("handler error: {}", e);
+                                    if let Some(aid) = admin {
+                                        let _ = c.send_message(aid, &format!("Handler error for command '/{}': {}", cmd_clone, e), None).await;
+                                    }
+                                }
+                                Err(p) => {
+                                    error!("handler panicked: {:?}", p);
+                                    if let Some(aid) = admin {
+                                        let _ = c.send_message(aid, &format!("Handler panicked for command '/{}': {:?}", cmd_clone, p), None).await;
+                                    }
+                                }
                             }
                         });
                     }
@@ -84,6 +101,7 @@ impl Dispatcher {
             let c = client.clone();
             let cb_clone = cb.clone();
             let sem = self.handler_sem.clone();
+            let admin = self.admin;
             let fut = h(c, cb_clone);
             tokio::spawn(async move {
                 let _permit = if let Some(s) = sem {
@@ -94,8 +112,18 @@ impl Dispatcher {
                 } else { None };
                 match std::panic::AssertUnwindSafe(fut).catch_unwind().await {
                     Ok(Ok(())) => {}
-                    Ok(Err(e)) => { error!("callback handler error: {}", e); }
-                    Err(p) => { error!("callback handler panicked: {:?}", p); }
+                    Ok(Err(e)) => {
+                        error!("callback handler error: {}", e);
+                        if let Some(aid) = admin {
+                            let _ = c.send_message(aid, &format!("Callback handler error: {}", e), None).await;
+                        }
+                    }
+                    Err(p) => {
+                        error!("callback handler panicked: {:?}", p);
+                        if let Some(aid) = admin {
+                            let _ = c.send_message(aid, &format!("Callback handler panicked: {:?}", p), None).await;
+                        }
+                    }
                 }
             });
         }
