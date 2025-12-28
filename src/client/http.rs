@@ -456,45 +456,81 @@ fn parse_retry_after_from_description(desc: &str) -> Option<u64> {
 }
 
 fn chunk_message(s: &str, max_len: usize) -> Vec<String> {
-    if s.len() <= max_len { return vec![s.to_string()]; }
-    let mut parts: Vec<String> = Vec::new();
+    use unicode_segmentation::UnicodeSegmentation;
     
-    let paragraphs: Vec<&str> = s.split('\n').collect();
-    let mut current = String::new();
-    for p in paragraphs {
-        if !current.is_empty() {
-            if current.len() + 1 + p.len() <= max_len {
-                current.push('\n');
-                current.push_str(p);
-                continue;
-            } else {
-                parts.push(current);
-                current = String::new();
-            }
-        }
-        if p.len() <= max_len {
-            current.push_str(p);
-        } else {
-            let mut chunk = String::new();
-            for word in p.split_whitespace() {
-                if chunk.is_empty() {
-                    chunk.push_str(word);
-                } else if chunk.len() + 1 + word.len() <= max_len {
-                    chunk.push(' ');
-                    chunk.push_str(word);
-                } else {
-                    parts.push(chunk);
-                    chunk = word.to_string();
+    let gcount = s.graphemes(true).count();
+    if gcount <= max_len { return vec![s.to_string()]; }
+
+    let mut parts: Vec<String> = Vec::new();
+
+   
+    for para in s.split('\n') {
+        let mut cur_graphemes: Vec<&str> = Vec::new();
+        let mut cur_count = 0usize;
+
+        for g in para.graphemes(true) {
+            let g_len = 1; 
+            if cur_count + g_len > max_len {
+               
+                if !cur_graphemes.is_empty() {
+                    parts.push(cur_graphemes.join(""));
+                    cur_graphemes.clear();
+                    cur_count = 0;
                 }
             }
-            if !chunk.is_empty() {
-                parts.push(chunk);
-            }
-            continue;
+            cur_graphemes.push(g);
+            cur_count += g_len;
+        }
+
+        if !cur_graphemes.is_empty() {
+            parts.push(cur_graphemes.join(""));
         }
     }
-    if !current.is_empty() {
-        parts.push(current);
+
+   
+    let mut merged: Vec<String> = Vec::new();
+    for p in parts {
+        if let Some(last) = merged.last_mut() {
+            let combined = format!("{}\n{}", last, p);
+            if combined.graphemes(true).count() <= max_len {
+                *last = combined;
+                continue;
+            }
+        }
+        merged.push(p);
     }
-    parts
+
+    merged
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_retry_after() {
+        let d = "Too many requests: retry after 12 seconds";
+        assert_eq!(parse_retry_after_from_description(d), Some(12));
+        let d2 = "something RETRY AFTER 5";
+        assert_eq!(parse_retry_after_from_description(d2), Some(5));
+        let d3 = "no retry here";
+        assert_eq!(parse_retry_after_from_description(d3), None);
+    }
+
+    #[test]
+    fn test_chunk_message_ascii() {
+        let s = "a ".repeat(500);
+        let res = chunk_message(&s, 100);
+        for r in &res { assert!(r.graphemes(true).count() <= 100); }
+        assert!(res.len() >= 5);
+    }
+
+    #[test]
+    fn test_chunk_message_emoji() {
+        let heart = "❤️"; 
+        let s = heart.repeat(300);
+        let res = chunk_message(&s, 50);
+        for r in &res { assert!(r.graphemes(true).count() <= 50); }
+        assert!(res.len() >= 5);
+    }
 }
