@@ -12,6 +12,10 @@ use tokio_util::io::ReaderStream;
 use serde::Deserialize;
 use serde::Serialize as SerSerialize;
 
+fn max_upload_bytes() -> u64 {
+    std::env::var("MAX_UPLOAD_MB").ok().and_then(|s| s.parse().ok()).unwrap_or(50) * 1024 * 1024
+}
+
 #[derive(Error, Debug)]
 pub enum BotError {
     #[error("http error: {0}")]
@@ -140,7 +144,6 @@ impl Client {
         Ok(last_res.unwrap_or_else(|| serde_json::Value::Null))
     }
 
-    /// Send message with a specific parse mode (e.g. "HTML" or "MarkdownV2").
     pub async fn send_message_with_mode(&self, chat_id: i64, text: &str, reply_markup: Option<serde_json::Value>, parse_mode: Option<&str>) -> Result<serde_json::Value, BotError> {
         let chunks = chunk_message(text, 4000);
         let total = chunks.len();
@@ -170,6 +173,10 @@ impl Client {
 
     pub async fn send_document_path(&self, chat_id: i64, path: &str) -> Result<serde_json::Value, BotError> {
         let url = format!("{}/sendDocument", self.base);
+        let md = tokio::fs::metadata(path).await?;
+        if md.len() > max_upload_bytes() {
+            return Err(BotError::Api(format!("file too large: {} bytes (max {} bytes)", md.len(), max_upload_bytes())));
+        }
         let file = fs::File::open(path).await?;
         let filename = Path::new(path)
             .file_name()
@@ -188,6 +195,10 @@ impl Client {
 
     pub async fn send_photo_path(&self, chat_id: i64, path: &str) -> Result<serde_json::Value, BotError> {
         let url = format!("{}/sendPhoto", self.base);
+        let md = tokio::fs::metadata(path).await?;
+        if md.len() > max_upload_bytes() {
+            return Err(BotError::Api(format!("file too large: {} bytes (max {} bytes)", md.len(), max_upload_bytes())));
+        }
         let file = fs::File::open(path).await?;
         let filename = Path::new(path)
             .file_name()
@@ -206,6 +217,10 @@ impl Client {
 
     pub async fn send_audio_path(&self, chat_id: i64, path: &str) -> Result<serde_json::Value, BotError> {
         let url = format!("{}/sendAudio", self.base);
+        let md = tokio::fs::metadata(path).await?;
+        if md.len() > max_upload_bytes() {
+            return Err(BotError::Api(format!("file too large: {} bytes (max {} bytes)", md.len(), max_upload_bytes())));
+        }
         let file = fs::File::open(path).await?;
         let filename = Path::new(path)
             .file_name()
@@ -224,6 +239,10 @@ impl Client {
 
     pub async fn send_voice_path(&self, chat_id: i64, path: &str) -> Result<serde_json::Value, BotError> {
         let url = format!("{}/sendVoice", self.base);
+        let md = tokio::fs::metadata(path).await?;
+        if md.len() > max_upload_bytes() {
+            return Err(BotError::Api(format!("file too large: {} bytes (max {} bytes)", md.len(), max_upload_bytes())));
+        }
         let file = fs::File::open(path).await?;
         let filename = Path::new(path)
             .file_name()
@@ -242,6 +261,10 @@ impl Client {
 
     pub async fn send_sticker_path(&self, chat_id: i64, path: &str) -> Result<serde_json::Value, BotError> {
         let url = format!("{}/sendSticker", self.base);
+        let md = tokio::fs::metadata(path).await?;
+        if md.len() > max_upload_bytes() {
+            return Err(BotError::Api(format!("file too large: {} bytes (max {} bytes)", md.len(), max_upload_bytes())));
+        }
         let file = fs::File::open(path).await?;
         let filename = Path::new(path)
             .file_name()

@@ -22,11 +22,22 @@ const COOLDOWN_SECONDS: u64 = 2;
 pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let _ = dotenvy::dotenv();
     tracing_subscriber::fmt::init();
-    let token = env::var("TELEGRAM_BOT_TOKEN")
-        .expect("Please set the TELEGRAM_BOT_TOKEN environment variable");
+        let token = match env::var("TELEGRAM_BOT_TOKEN") {
+            Ok(t) if t.contains(':') && t.len() > 10 => t,
+            Ok(_) => {
+                eprintln!("TELEGRAM_BOT_TOKEN looks invalid (expected token like 123:ABC). Please check env.");
+                return Err("invalid TELEGRAM_BOT_TOKEN".into());
+            }
+            Err(_) => {
+                eprintln!("Missing TELEGRAM_BOT_TOKEN environment variable. Set it and restart.");
+                return Err("missing TELEGRAM_BOT_TOKEN".into());
+            }
+        };
 
     let admin_id: Option<i64> = env::var("ADMIN_ID").ok().and_then(|s| s.parse().ok());
     let admin = admin_id;
+
+    let cooldown_seconds: u64 = env::var("COOLDOWN_SECONDS").ok().and_then(|s| s.parse().ok()).unwrap_or(COOLDOWN_SECONDS);
 
     let client = Client::builder(token).build();
     let mut offset: i64 = 0;
@@ -78,15 +89,16 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     {
         let kv_s = kv.clone();
         let users_s = users.clone();
-        tokio::spawn(async move {
-            loop {
-                sleep(Duration::from_secs(AUTOSAVE_INTERVAL_SECS)).await;
-                let kv_json = serde_json::to_vec(&*kv_s.read().await).unwrap_or_default();
-                let _ = tokio_fs::write(KV_FILE, kv_json).await;
-                let users_json = serde_json::to_vec(&*users_s.read().await).unwrap_or_default();
-                let _ = tokio_fs::write(USERS_FILE, users_json).await;
-            }
-        });
+            let autosave_interval_secs: u64 = env::var("AUTOSAVE_INTERVAL_SECS").ok().and_then(|s| s.parse().ok()).unwrap_or(AUTOSAVE_INTERVAL_SECS);
+            tokio::spawn(async move {
+                loop {
+                    sleep(Duration::from_secs(autosave_interval_secs)).await;
+                    let kv_json = serde_json::to_vec(&*kv_s.read().await).unwrap_or_default();
+                    let _ = tokio_fs::write(KV_FILE, kv_json).await;
+                    let users_json = serde_json::to_vec(&*users_s.read().await).unwrap_or_default();
+                    let _ = tokio_fs::write(USERS_FILE, users_json).await;
+                }
+            });
     }
 
     tracing::info!("Starting polling bot with dispatcher... (press Ctrl+C to stop)");
@@ -122,13 +134,13 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
                                         let uid = msg.chat.id;
                                         let now = chrono::Utc::now().timestamp() as u64;
                                         let mut cds = cooldowns.write().await;
-                                        if let Some(last) = cds.get(&uid) {
-                                            if now.saturating_sub(*last) < COOLDOWN_SECONDS {
-                                                let _ = client.send_message(uid, "Please wait a moment before sending another command.", None).await;
-                                                continue;
+                                            if let Some(last) = cds.get(&uid) {
+                                                if now.saturating_sub(*last) < cooldown_seconds {
+                                                    let _ = client.send_message(uid, "Please wait a moment before sending another command.", None).await;
+                                                    continue;
+                                                }
                                             }
-                                        }
-                                        cds.insert(uid, now);
+                                            cds.insert(uid, now);
                                     }
                                 }
                                 tracing::info!("Message from {}: {}", msg.chat.id, msg.text.clone().unwrap_or_default());
