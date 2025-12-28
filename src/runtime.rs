@@ -42,6 +42,25 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::builder(token).build();
     let mut offset: i64 = 0;
 
+    {
+        let token_for_hook = token.clone();
+        let admin_for_hook = admin;
+        std::panic::set_hook(Box::new(move |info| {
+            let msg = format!("Bot panic: {}\n", info);
+            let _ = std::fs::write("data/panic.log", msg.as_bytes());
+            if let Some(aid) = admin_for_hook {
+                let token = token_for_hook.clone();
+                std::thread::spawn(move || {
+                    let url = format!("https://api.telegram.org/bot{}/sendMessage", token);
+                    let body = serde_json::json!({"chat_id": aid, "text": msg});
+                    let client = reqwest::blocking::Client::new();
+                    let _ = client.post(&url).json(&body).send();
+                });
+            }
+            eprintln!("panic occurred: {}", info);
+        }));
+    }
+
     let kv_map = if let Ok(b) = tokio_fs::read(KV_FILE).await {
         match serde_json::from_slice::<HashMap<String, String>>(&b) {
             Ok(m) => m,
