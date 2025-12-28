@@ -60,13 +60,14 @@ impl Dispatcher {
                 let cmd = parts[0].trim_start_matches('/').to_string();
                 if let Some(handlers) = self.commands.get(&cmd) {
                     for h in handlers {
-                        let c = client.clone();
+                        let c_for_call = client.clone();
+                        let c_for_notify = c_for_call.clone();
                         let m = msg.clone();
                         let cmd_clone = cmd.clone();
 
                         let sem = self.handler_sem.clone();
                         let admin = self.admin;
-                        let fut = h(c, m);
+                        let fut = h(c_for_call, m);
                         tokio::spawn(async move {
                             let _permit = if let Some(s) = sem {
                                 match s.clone().acquire_owned().await {
@@ -79,13 +80,13 @@ impl Dispatcher {
                                 Ok(Err(e)) => {
                                     error!("handler error: {}", e);
                                     if let Some(aid) = admin {
-                                        let _ = c.send_message(aid, &format!("Handler error for command '/{}': {}", cmd_clone, e), None).await;
+                                        let _ = c_for_notify.send_message(aid, &format!("Handler error for command '/{}': {}", cmd_clone, e), None).await;
                                     }
                                 }
                                 Err(p) => {
                                     error!("handler panicked: {:?}", p);
                                     if let Some(aid) = admin {
-                                        let _ = c.send_message(aid, &format!("Handler panicked for command '/{}': {:?}", cmd_clone, p), None).await;
+                                        let _ = c_for_notify.send_message(aid, &format!("Handler panicked for command '/{}': {:?}", cmd_clone, p), None).await;
                                     }
                                 }
                             }
@@ -98,11 +99,12 @@ impl Dispatcher {
 
     pub async fn dispatch_callback(&self, client: Client, cb: CallbackQuery) {
         for h in &self.callbacks {
-            let c = client.clone();
+            let c_for_call = client.clone();
+            let c_for_notify = c_for_call.clone();
             let cb_clone = cb.clone();
             let sem = self.handler_sem.clone();
             let admin = self.admin;
-            let fut = h(c, cb_clone);
+            let fut = h(c_for_call, cb_clone);
             tokio::spawn(async move {
                 let _permit = if let Some(s) = sem {
                     match s.clone().acquire_owned().await {
@@ -115,13 +117,13 @@ impl Dispatcher {
                     Ok(Err(e)) => {
                         error!("callback handler error: {}", e);
                         if let Some(aid) = admin {
-                            let _ = c.send_message(aid, &format!("Callback handler error: {}", e), None).await;
+                            let _ = c_for_notify.send_message(aid, &format!("Callback handler error: {}", e), None).await;
                         }
                     }
                     Err(p) => {
                         error!("callback handler panicked: {:?}", p);
                         if let Some(aid) = admin {
-                            let _ = c.send_message(aid, &format!("Callback handler panicked: {:?}", p), None).await;
+                            let _ = c_for_notify.send_message(aid, &format!("Callback handler panicked: {:?}", p), None).await;
                         }
                     }
                 }

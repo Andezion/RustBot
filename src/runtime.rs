@@ -5,7 +5,6 @@ use std::collections::{HashMap, HashSet};
 use tokio::time::{sleep, Duration};
 use crate::client::Client;
 use crate::dispatch::Dispatcher;
-use std::path::PathBuf;
 use tokio::fs as tokio_fs;
 use chrono::Utc;
 
@@ -39,7 +38,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let cooldown_seconds: u64 = env::var("COOLDOWN_SECONDS").ok().and_then(|s| s.parse().ok()).unwrap_or(COOLDOWN_SECONDS);
 
-    let client = Client::builder(token).build();
+    let client = Client::builder(token.clone()).build();
     let mut offset: i64 = 0;
 
     {

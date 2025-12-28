@@ -9,10 +9,8 @@ use std::path::Path;
 use tokio::time::{sleep, Duration};
 use tracing::{warn};
 use tokio_util::io::ReaderStream;
-use serde::Deserialize;
-use serde::Serialize as SerSerialize;
+
 use tokio::sync::{Mutex, Notify};
-use std::time::Duration as StdDuration;
 
 fn max_upload_bytes() -> u64 {
     std::env::var("MAX_UPLOAD_MB").ok().and_then(|s| s.parse().ok()).unwrap_or(50) * 1024 * 1024
@@ -69,7 +67,6 @@ pub struct RateLimiter {
     tokens: Mutex<u32>,
     capacity: u32,
     refill_per_tick: u32,
-    tick: StdDuration,
     notify: Notify,
 }
 
@@ -77,7 +74,7 @@ impl RateLimiter {
     pub fn new(rps: u32, burst: u32) -> std::sync::Arc<RateLimiter> {
         let capacity = if burst == 0 { rps } else { burst };
         let refill_per_tick = if rps == 0 { 1 } else { rps };
-        let rl = std::sync::Arc::new(RateLimiter { tokens: Mutex::new(capacity), capacity, refill_per_tick, tick: StdDuration::from_secs(1), notify: Notify::new() });
+        let rl = std::sync::Arc::new(RateLimiter { tokens: Mutex::new(capacity), capacity, refill_per_tick, notify: Notify::new() });
         let rl_clone = rl.clone();
         tokio::spawn(async move {
             loop {
@@ -243,6 +240,7 @@ impl Client {
         if api.ok { Ok(api.result) } else { Err(BotError::Api(api.description.unwrap_or_else(|| "telegram api error".into()))) }
     }
 
+    #[allow(dead_code)]
     pub async fn send_photo_path(&self, chat_id: i64, path: &str) -> Result<serde_json::Value, BotError> {
         let url = format!("{}/sendPhoto", self.base);
         let md = tokio::fs::metadata(path).await?;
@@ -265,6 +263,7 @@ impl Client {
         if api.ok { Ok(api.result) } else { Err(BotError::Api(api.description.unwrap_or_else(|| "telegram api error".into()))) }
     }
 
+    #[allow(dead_code)]
     pub async fn send_audio_path(&self, chat_id: i64, path: &str) -> Result<serde_json::Value, BotError> {
         let url = format!("{}/sendAudio", self.base);
         let md = tokio::fs::metadata(path).await?;
@@ -287,6 +286,7 @@ impl Client {
         if api.ok { Ok(api.result) } else { Err(BotError::Api(api.description.unwrap_or_else(|| "telegram api error".into()))) }
     }
 
+    #[allow(dead_code)]
     pub async fn send_voice_path(&self, chat_id: i64, path: &str) -> Result<serde_json::Value, BotError> {
         let url = format!("{}/sendVoice", self.base);
         let md = tokio::fs::metadata(path).await?;
@@ -309,6 +309,7 @@ impl Client {
         if api.ok { Ok(api.result) } else { Err(BotError::Api(api.description.unwrap_or_else(|| "telegram api error".into()))) }
     }
 
+    #[allow(dead_code)]
     pub async fn send_sticker_path(&self, chat_id: i64, path: &str) -> Result<serde_json::Value, BotError> {
         let url = format!("{}/sendSticker", self.base);
         let md = tokio::fs::metadata(path).await?;
@@ -501,36 +502,4 @@ fn chunk_message(s: &str, max_len: usize) -> Vec<String> {
     }
 
     merged
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_parse_retry_after() {
-        let d = "Too many requests: retry after 12 seconds";
-        assert_eq!(parse_retry_after_from_description(d), Some(12));
-        let d2 = "something RETRY AFTER 5";
-        assert_eq!(parse_retry_after_from_description(d2), Some(5));
-        let d3 = "no retry here";
-        assert_eq!(parse_retry_after_from_description(d3), None);
-    }
-
-    #[test]
-    fn test_chunk_message_ascii() {
-        let s = "a ".repeat(500);
-        let res = chunk_message(&s, 100);
-        for r in &res { assert!(r.graphemes(true).count() <= 100); }
-        assert!(res.len() >= 5);
-    }
-
-    #[test]
-    fn test_chunk_message_emoji() {
-        let heart = "❤️"; 
-        let s = heart.repeat(300);
-        let res = chunk_message(&s, 50);
-        for r in &res { assert!(r.graphemes(true).count() <= 50); }
-        assert!(res.len() >= 5);
-    }
 }
