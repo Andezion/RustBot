@@ -1,6 +1,5 @@
 use std::vec::Vec;
 
-/// Very small argument parser: splits on whitespace but supports double-quoted strings.
 pub fn parse_args(s: &str) -> Vec<String> {
     let mut args = Vec::new();
     let mut cur = String::new();

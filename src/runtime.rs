@@ -31,7 +31,6 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::builder(token).build();
     let mut offset: i64 = 0;
 
-    // Load persisted kv and users if present
     let kv_map = if let Ok(b) = tokio_fs::read(KV_FILE).await {
         match serde_json::from_slice::<HashMap<String, String>>(&b) {
             Ok(m) => m,
@@ -49,7 +48,6 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let users: Users = Arc::new(RwLock::new(users_set));
     let counters: Counters = Arc::new(RwLock::new(HashMap::new()));
 
-    // Cooldown tracking (ephemeral)
     let cooldowns: Arc<RwLock<HashMap<i64, u64>>> = Arc::new(RwLock::new(HashMap::new()));
 
     let mut disp = Dispatcher::new();
@@ -75,10 +73,8 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     crate::commands::register(&mut disp, admin, kv.clone(), users.clone(), counters.clone(), kb_help, kb_start, kb_keyboard);
 
-    // Ensure data directory exists
     let _ = tokio_fs::create_dir_all(DATA_DIR).await;
 
-    // Autosave task for kv and users
     {
         let kv_s = kv.clone();
         let users_s = users.clone();
@@ -123,7 +119,6 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
                                         let mut ctr = counters.write().await;
                                         *ctr.entry(cmd).or_insert(0) += 1;
 
-                                        // Simple per-user cooldown: skip dispatch if user sent commands too quickly
                                         let uid = msg.chat.id;
                                         let now = chrono::Utc::now().timestamp() as u64;
                                         let mut cds = cooldowns.write().await;
