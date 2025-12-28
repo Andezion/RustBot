@@ -9,6 +9,8 @@ use std::path::Path;
 use tokio::time::{sleep, Duration};
 use tracing::{warn};
 use tokio_util::io::ReaderStream;
+use serde::Deserialize;
+use serde::Serialize as SerSerialize;
 
 #[derive(Error, Debug)]
 pub enum BotError {
@@ -138,6 +140,34 @@ impl Client {
         Ok(last_res.unwrap_or_else(|| serde_json::Value::Null))
     }
 
+    /// Send message with a specific parse mode (e.g. "HTML" or "MarkdownV2").
+    pub async fn send_message_with_mode(&self, chat_id: i64, text: &str, reply_markup: Option<serde_json::Value>, parse_mode: Option<&str>) -> Result<serde_json::Value, BotError> {
+        let chunks = chunk_message(text, 4000);
+        let total = chunks.len();
+        let mut last_res: Option<serde_json::Value> = None;
+        for (i, chunk) in chunks.into_iter().enumerate() {
+            let mut params = serde_json::json!({"chat_id": chat_id, "text": chunk});
+            if let Some(pm) = parse_mode {
+                params["parse_mode"] = serde_json::Value::String(pm.to_string());
+            }
+            if i == 0 {
+                if let Some(rm) = reply_markup.clone() {
+                    params["reply_markup"] = rm;
+                }
+            }
+            let res = self.send_raw("sendMessage", &params).await?;
+            last_res = Some(res);
+            if i + 1 < total {
+                sleep(Duration::from_millis(120)).await;
+            }
+        }
+        Ok(last_res.unwrap_or_else(|| serde_json::Value::Null))
+    }
+
+    pub async fn send_message_html(&self, chat_id: i64, text: &str, reply_markup: Option<serde_json::Value>) -> Result<serde_json::Value, BotError> {
+        self.send_message_with_mode(chat_id, text, reply_markup, Some("HTML")).await
+    }
+
     pub async fn send_document_path(&self, chat_id: i64, path: &str) -> Result<serde_json::Value, BotError> {
         let url = format!("{}/sendDocument", self.base);
         let file = fs::File::open(path).await?;
@@ -150,6 +180,78 @@ impl Client {
         let body = reqwest::Body::wrap_stream(stream);
         let part = Part::stream(body).file_name(filename);
         let form = Form::new().text("chat_id", chat_id.to_string()).part("document", part);
+        let resp = self.http.post(&url).multipart(form).send().await?;
+        let text = resp.text().await?;
+        let api: ApiResponse<serde_json::Value> = serde_json::from_str(&text)?;
+        if api.ok { Ok(api.result) } else { Err(BotError::Api(api.description.unwrap_or_else(|| "telegram api error".into()))) }
+    }
+
+    pub async fn send_photo_path(&self, chat_id: i64, path: &str) -> Result<serde_json::Value, BotError> {
+        let url = format!("{}/sendPhoto", self.base);
+        let file = fs::File::open(path).await?;
+        let filename = Path::new(path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("photo")
+            .to_string();
+        let stream = ReaderStream::new(file);
+        let body = reqwest::Body::wrap_stream(stream);
+        let part = Part::stream(body).file_name(filename);
+        let form = Form::new().text("chat_id", chat_id.to_string()).part("photo", part);
+        let resp = self.http.post(&url).multipart(form).send().await?;
+        let text = resp.text().await?;
+        let api: ApiResponse<serde_json::Value> = serde_json::from_str(&text)?;
+        if api.ok { Ok(api.result) } else { Err(BotError::Api(api.description.unwrap_or_else(|| "telegram api error".into()))) }
+    }
+
+    pub async fn send_audio_path(&self, chat_id: i64, path: &str) -> Result<serde_json::Value, BotError> {
+        let url = format!("{}/sendAudio", self.base);
+        let file = fs::File::open(path).await?;
+        let filename = Path::new(path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("audio")
+            .to_string();
+        let stream = ReaderStream::new(file);
+        let body = reqwest::Body::wrap_stream(stream);
+        let part = Part::stream(body).file_name(filename);
+        let form = Form::new().text("chat_id", chat_id.to_string()).part("audio", part);
+        let resp = self.http.post(&url).multipart(form).send().await?;
+        let text = resp.text().await?;
+        let api: ApiResponse<serde_json::Value> = serde_json::from_str(&text)?;
+        if api.ok { Ok(api.result) } else { Err(BotError::Api(api.description.unwrap_or_else(|| "telegram api error".into()))) }
+    }
+
+    pub async fn send_voice_path(&self, chat_id: i64, path: &str) -> Result<serde_json::Value, BotError> {
+        let url = format!("{}/sendVoice", self.base);
+        let file = fs::File::open(path).await?;
+        let filename = Path::new(path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("voice")
+            .to_string();
+        let stream = ReaderStream::new(file);
+        let body = reqwest::Body::wrap_stream(stream);
+        let part = Part::stream(body).file_name(filename);
+        let form = Form::new().text("chat_id", chat_id.to_string()).part("voice", part);
+        let resp = self.http.post(&url).multipart(form).send().await?;
+        let text = resp.text().await?;
+        let api: ApiResponse<serde_json::Value> = serde_json::from_str(&text)?;
+        if api.ok { Ok(api.result) } else { Err(BotError::Api(api.description.unwrap_or_else(|| "telegram api error".into()))) }
+    }
+
+    pub async fn send_sticker_path(&self, chat_id: i64, path: &str) -> Result<serde_json::Value, BotError> {
+        let url = format!("{}/sendSticker", self.base);
+        let file = fs::File::open(path).await?;
+        let filename = Path::new(path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("sticker")
+            .to_string();
+        let stream = ReaderStream::new(file);
+        let body = reqwest::Body::wrap_stream(stream);
+        let part = Part::stream(body).file_name(filename);
+        let form = Form::new().text("chat_id", chat_id.to_string()).part("sticker", part);
         let resp = self.http.post(&url).multipart(form).send().await?;
         let text = resp.text().await?;
         let api: ApiResponse<serde_json::Value> = serde_json::from_str(&text)?;

@@ -17,17 +17,17 @@ pub fn register(
         let admin = admin;
         let kb = kb_help.clone();
         async move {
-            let mut help = String::from("Available commands:\n");
+            let mut help = String::from("<pre>Available commands:\n");
             help.push_str("/start - start and register\n");
-            help.push_str("/help - this message\n");
+            help.push_str("/help - this message (use /help <command> for detail)\n");
             help.push_str("/ping - pong\n");
-            help.push_str("/echo <text> - echo back text\n");
+            help.push_str("/echo &lt;text&gt; - echo back text\n");
             help.push_str("/whoami - show your id and username\n");
             help.push_str("/keyboard - show custom keyboard\n");
             help.push_str("/inline - show inline buttons example\n");
-            help.push_str("/set <k> <v> - save key/value (in-memory)\n");
-            help.push_str("/get <k> - get saved value\n");
-            help.push_str("/broadcast <text> - send to all users (admin only)\n");
+            help.push_str("/set &lt;k&gt; &lt;v&gt; - save key/value (persisted)\n");
+            help.push_str("/get &lt;k&gt; - get saved value\n");
+            help.push_str("/broadcast &lt;text&gt; - send to all users (admin only)\n");
             help.push_str("/upload - upload README.md\n");
             help.push_str("/stats - show simple stats\n");
             if admin.is_some() {
@@ -35,8 +35,9 @@ pub fn register(
             } else {
                 help.push_str("\nNote: ADMIN_ID not set. Some commands require ADMIN_ID.\n");
             }
+            help.push_str("</pre>");
             let rm = serde_json::to_value(&kb).ok();
-            client.send_message(msg.chat.id, &help, rm).await?;
+            let _ = client.send_message_html(msg.chat.id, &help, rm).await?;
             Ok(())
         }
     });
