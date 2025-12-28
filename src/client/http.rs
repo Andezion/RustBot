@@ -11,6 +11,8 @@ use tracing::{warn};
 use tokio_util::io::ReaderStream;
 use serde::Deserialize;
 use serde::Serialize as SerSerialize;
+use tokio::sync::{Mutex, Notify};
+use std::time::Duration as StdDuration;
 
 fn max_upload_bytes() -> u64 {
     std::env::var("MAX_UPLOAD_MB").ok().and_then(|s| s.parse().ok()).unwrap_or(50) * 1024 * 1024
@@ -32,6 +34,7 @@ pub enum BotError {
 pub struct Client {
     pub base: String,
     pub http: HttpClient,
+    pub rate_limiter: Option<std::sync::Arc<RateLimiter>>,
 }
 
 impl Client {
@@ -54,12 +57,59 @@ impl ClientBuilder {
     pub fn build(self) -> Client {
         let http = self.http_builder.build().expect("failed to build reqwest client");
         let base = format!("https://api.telegram.org/bot{}", self.token);
-        Client { base, http }
+        
+        let rps: u32 = std::env::var("RATE_LIMIT_RPS").ok().and_then(|s| s.parse().ok()).unwrap_or(20);
+        let burst: u32 = std::env::var("RATE_LIMIT_BURST").ok().and_then(|s| s.parse().ok()).unwrap_or(rps);
+        let rl = RateLimiter::new(rps, burst);
+        Client { base, http, rate_limiter: Some(rl) }
+    }
+}
+
+pub struct RateLimiter {
+    tokens: Mutex<u32>,
+    capacity: u32,
+    refill_per_tick: u32,
+    tick: StdDuration,
+    notify: Notify,
+}
+
+impl RateLimiter {
+    pub fn new(rps: u32, burst: u32) -> std::sync::Arc<RateLimiter> {
+        let capacity = if burst == 0 { rps } else { burst };
+        let refill_per_tick = if rps == 0 { 1 } else { rps };
+        let rl = std::sync::Arc::new(RateLimiter { tokens: Mutex::new(capacity), capacity, refill_per_tick, tick: StdDuration::from_secs(1), notify: Notify::new() });
+        let rl_clone = rl.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                let mut t = rl_clone.tokens.lock().await;
+                let add = rl_clone.refill_per_tick;
+                let new = (*t).saturating_add(add);
+                *t = std::cmp::min(new, rl_clone.capacity);
+                rl_clone.notify.notify_waiters();
+            }
+        });
+        rl
+    }
+
+    pub async fn acquire(&self) {
+        loop {
+            let mut t = self.tokens.lock().await;
+            if *t > 0 {
+                *t -= 1;
+                return;
+            }
+            drop(t);
+            self.notify.notified().await;
+        }
     }
 }
 impl Client {
     pub async fn send_raw<P: Serialize>(&self, method: &str, params: &P) -> Result<serde_json::Value, BotError> {
         let url = format!("{}/{}", self.base, method);
+        if let Some(rl) = &self.rate_limiter {
+            rl.acquire().await;
+        }
         let mut attempt: u32 = 0;
         let max_attempts: u32 = 5;
         let mut backoff = Duration::from_millis(500);
