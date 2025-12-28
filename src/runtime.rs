@@ -79,6 +79,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let counters: Counters = Arc::new(RwLock::new(HashMap::new()));
 
     let cooldowns: Arc<RwLock<HashMap<i64, u64>>> = Arc::new(RwLock::new(HashMap::new()));
+    let bursts: Arc<RwLock<HashMap<i64, Vec<u64>>>> = Arc::new(RwLock::new(HashMap::new()));
 
     let mut disp = Dispatcher::new();
 
@@ -102,6 +103,13 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let kb_keyboard = keyboard_markup.clone();
 
     crate::commands::register(&mut disp, admin, kv.clone(), users.clone(), counters.clone(), kb_help, kb_start, kb_keyboard);
+
+    let max_handlers: usize = env::var("MAX_CONCURRENT_HANDLERS").ok().and_then(|s| s.parse().ok()).unwrap_or(50);
+    let sem = Arc::new(tokio::sync::Semaphore::new(max_handlers));
+    disp.set_concurrency_limit(sem.clone());
+
+    let window_secs: u64 = env::var("BURST_WINDOW_SECS").ok().and_then(|s| s.parse().ok()).unwrap_or(30);
+    let max_per_window: usize = env::var("MAX_PER_WINDOW").ok().and_then(|s| s.parse().ok()).unwrap_or(10);
 
     let _ = tokio_fs::create_dir_all(DATA_DIR).await;
 
@@ -151,15 +159,26 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
                                         *ctr.entry(cmd).or_insert(0) += 1;
 
                                         let uid = msg.chat.id;
-                                        let now = chrono::Utc::now().timestamp() as u64;
+                                        let now = Utc::now().timestamp() as u64;
+
+                                        let mut bursts_map = bursts.write().await;
+                                        let entry = bursts_map.entry(uid).or_insert_with(Vec::new);
+                                       
+                                        entry.retain(|ts| now.saturating_sub(*ts) <= window_secs);
+                                        if entry.len() >= max_per_window {
+                                            let _ = client.send_message(uid, "You are sending commands too quickly, slowing down.", None).await;
+                                            continue;
+                                        }
+                                        entry.push(now);
+
                                         let mut cds = cooldowns.write().await;
-                                            if let Some(last) = cds.get(&uid) {
-                                                if now.saturating_sub(*last) < cooldown_seconds {
-                                                    let _ = client.send_message(uid, "Please wait a moment before sending another command.", None).await;
-                                                    continue;
-                                                }
+                                        if let Some(last) = cds.get(&uid) {
+                                            if now.saturating_sub(*last) < cooldown_seconds {
+                                                let _ = client.send_message(uid, "Please wait a moment before sending another command.", None).await;
+                                                continue;
                                             }
-                                            cds.insert(uid, now);
+                                        }
+                                        cds.insert(uid, now);
                                     }
                                 }
                                 tracing::info!("Message from {}: {}", msg.chat.id, msg.text.clone().unwrap_or_default());

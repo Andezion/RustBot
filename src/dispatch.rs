@@ -5,6 +5,7 @@ use futures::FutureExt;
 use crate::client::{Client, BotError};
 use crate::types::{Message, CallbackQuery};
 use tracing::error;
+use tokio::sync::Semaphore;
 
 pub type Handler = Arc<dyn Fn(Client, Message) -> BoxFuture<'static, Result<(), BotError>> + Send + Sync>;
 pub type CallbackHandler = Arc<dyn Fn(Client, CallbackQuery) -> BoxFuture<'static, Result<(), BotError>> + Send + Sync>;
@@ -12,11 +13,16 @@ pub type CallbackHandler = Arc<dyn Fn(Client, CallbackQuery) -> BoxFuture<'stati
 pub struct Dispatcher {
     commands: HashMap<String, Vec<Handler>>,
     callbacks: Vec<CallbackHandler>,
+    handler_sem: Option<Arc<Semaphore>>,
 }
 
 impl Dispatcher {
     pub fn new() -> Self {
-        Self { commands: HashMap::new(), callbacks: Vec::new() }
+        Self { commands: HashMap::new(), callbacks: Vec::new(), handler_sem: None }
+    }
+
+    pub fn set_concurrency_limit(&mut self, sem: Arc<Semaphore>) {
+        self.handler_sem = Some(sem);
     }
 
     pub fn add_command<F, Fut>(&mut self, cmd: &str, f: F)
@@ -52,13 +58,20 @@ impl Dispatcher {
                         let c = client.clone();
                         let m = msg.clone();
 
+                        let sem = self.handler_sem.clone();
                         let fut = h(c, m);
                         tokio::spawn(async move {
-                            match std::panic::AssertUnwindSafe(fut).catch_unwind().await {
-                                    Ok(Ok(())) => {}
-                                    Ok(Err(e)) => { error!("handler error: {}", e); }
-                                    Err(p) => { error!("handler panicked: {:?}", p); }
+                            let _permit = if let Some(s) = sem {
+                                match s.clone().acquire_owned().await {
+                                    Ok(p) => Some(p),
+                                    Err(_) => None,
                                 }
+                            } else { None };
+                            match std::panic::AssertUnwindSafe(fut).catch_unwind().await {
+                                Ok(Ok(())) => {}
+                                Ok(Err(e)) => { error!("handler error: {}", e); }
+                                Err(p) => { error!("handler panicked: {:?}", p); }
+                            }
                         });
                     }
                 }
@@ -70,8 +83,15 @@ impl Dispatcher {
         for h in &self.callbacks {
             let c = client.clone();
             let cb_clone = cb.clone();
+            let sem = self.handler_sem.clone();
             let fut = h(c, cb_clone);
             tokio::spawn(async move {
+                let _permit = if let Some(s) = sem {
+                    match s.clone().acquire_owned().await {
+                        Ok(p) => Some(p),
+                        Err(_) => None,
+                    }
+                } else { None };
                 match std::panic::AssertUnwindSafe(fut).catch_unwind().await {
                     Ok(Ok(())) => {}
                     Ok(Err(e)) => { error!("callback handler error: {}", e); }
