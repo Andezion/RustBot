@@ -5,10 +5,18 @@ use std::collections::{HashMap, HashSet};
 use tokio::time::{sleep, Duration};
 use crate::client::Client;
 use crate::dispatch::Dispatcher;
+use std::path::PathBuf;
+use tokio::fs as tokio_fs;
 
 type KvStore = Arc<RwLock<HashMap<String, String>>>;
 type Users = Arc<RwLock<HashSet<i64>>>;
 type Counters = Arc<RwLock<HashMap<String, u64>>>;
+
+const DATA_DIR: &str = "data";
+const KV_FILE: &str = "data/kv.json";
+const USERS_FILE: &str = "data/users.json";
+const AUTOSAVE_INTERVAL_SECS: u64 = 30;
+const COOLDOWN_SECONDS: u64 = 2;
 
 pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let _ = dotenvy::dotenv();
@@ -22,9 +30,26 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::builder(token).build();
     let mut offset: i64 = 0;
 
-    let kv: KvStore = Arc::new(RwLock::new(HashMap::new()));
-    let users: Users = Arc::new(RwLock::new(HashSet::new()));
+    // Load persisted kv and users if present
+    let kv_map = if let Ok(b) = tokio_fs::read(KV_FILE).await {
+        match serde_json::from_slice::<HashMap<String, String>>(&b) {
+            Ok(m) => m,
+            Err(_) => HashMap::new(),
+        }
+    } else { HashMap::new() };
+    let users_set = if let Ok(b) = tokio_fs::read(USERS_FILE).await {
+        match serde_json::from_slice::<HashSet<i64>>(&b) {
+            Ok(s) => s,
+            Err(_) => HashSet::new(),
+        }
+    } else { HashSet::new() };
+
+    let kv: KvStore = Arc::new(RwLock::new(kv_map));
+    let users: Users = Arc::new(RwLock::new(users_set));
     let counters: Counters = Arc::new(RwLock::new(HashMap::new()));
+
+    // Cooldown tracking (ephemeral)
+    let cooldowns: Arc<RwLock<HashMap<i64, u64>>> = Arc::new(RwLock::new(HashMap::new()));
 
     let mut disp = Dispatcher::new();
 
@@ -48,6 +73,28 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let kb_keyboard = keyboard_markup.clone();
 
     crate::commands::register(&mut disp, admin, kv.clone(), users.clone(), counters.clone(), kb_help, kb_start, kb_keyboard);
+
+    // Ensure data directory exists
+    let _ = tokio_fs::create_dir_all(DATA_DIR).await;
+
+    // Autosave task for kv and users
+    {
+        let kv_s = kv.clone();
+        let users_s = users.clone();
+        tokio::spawn(async move {
+            loop {
+                sleep(Duration::from_secs(AUTOSAVE_INTERVAL_SECS)).await;
+                if let Ok(map) = kv_s.read().await.clone().try_into() {
+                }
+                if let Ok(kvmap) = kv_s.read().await.clone().try_into() {
+                }
+                let kv_json = serde_json::to_vec(&*kv_s.read().await).unwrap_or_default();
+                let _ = tokio_fs::write(KV_FILE, kv_json).await;
+                let users_json = serde_json::to_vec(&*users_s.read().await).unwrap_or_default();
+                let _ = tokio_fs::write(USERS_FILE, users_json).await;
+            }
+        });
+    }
 
     tracing::info!("Starting polling bot with dispatcher... (press Ctrl+C to stop)");
 
@@ -78,6 +125,18 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
                                         let cmd = text.split_whitespace().next().unwrap_or("").trim_start_matches('/').to_string();
                                         let mut ctr = counters.write().await;
                                         *ctr.entry(cmd).or_insert(0) += 1;
+
+                                        // Simple per-user cooldown: skip dispatch if user sent commands too quickly
+                                        let uid = msg.chat.id;
+                                        let now = chrono::Utc::now().timestamp() as u64;
+                                        let mut cds = cooldowns.write().await;
+                                        if let Some(last) = cds.get(&uid) {
+                                            if now.saturating_sub(*last) < COOLDOWN_SECONDS {
+                                                let _ = client.send_message(uid, "Please wait a moment before sending another command.", None).await;
+                                                continue;
+                                            }
+                                        }
+                                        cds.insert(uid, now);
                                     }
                                 }
                                 tracing::info!("Message from {}: {}", msg.chat.id, msg.text.clone().unwrap_or_default());
